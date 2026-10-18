@@ -1,0 +1,1 @@
+{ me { subject roles participant { id givenName } provider { id name } } }

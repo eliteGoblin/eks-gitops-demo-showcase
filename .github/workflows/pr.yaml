@@ -1,0 +1,180 @@
+name: pr
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.76.0
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
+
+jobs:
+  # ---------- functional gates (blocking) ----------
+  test:
+    runs-on: ubuntu-24.04
+    # The contract tests in internal/app run against the memory store and,
+    # with TEST_DATABASE_URL, against this Postgres too.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: demo
+          POSTGRES_PASSWORD: demo # throwaway CI database
+          POSTGRES_DB: demo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U demo -d demo"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://demo:demo@localhost:5432/demo?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Coverage gate (domain + app >= 80%)
+        run: make cover
+      - name: Codegen drift (gqlgen output must be committed)
+        run: |
+          go tool gqlgen generate
+          git diff --exit-code -- internal/adapter/graphql
+      - name: Trusted documents (persisted/queries.json must match persisted/documents)
+        run: go run ./cmd/persistedgen -check
+      - name: Codegen drift (sqlc output must match the queries and migrations)
+        run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 diff -f internal/adapter/postgres/sqlc.yaml
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          args: --disable gosec # gosec runs as a report-only security scan below
+      - name: actionlint (workflow syntax and expressions)
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/*.yaml
+      - name: Secrets files must be sops-encrypted (a plaintext commit would be in history before secrets-sync noticed)
+        run: scripts/ci/check-sops-encrypted.sh secrets
+      - name: End-to-end assertions reject bad evidence (false-pass self-test, no cluster)
+        run: make e2e-selftest
+      - name: Demo passwords are seeded from a file and a broken random source fails closed (stubbed, no AWS)
+        run: scripts/ci/secrets-seed-test.sh
+
+  helm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+      - run: helm lint deploy/helm/demo-api deploy/helm/payments-svc
+      - name: Render and validate manifests (ingress on and off; database and payments; payments-svc; load generator)
+        run: |
+          helm template demo-api deploy/helm/demo-api | kubeconform -strict -summary
+          helm template demo-api deploy/helm/demo-api --set ingress.enabled=true | kubeconform -strict -summary
+          helm template demo-api deploy/helm/demo-api --set database.enabled=true --set database.existingSecret=db | kubeconform -strict -summary
+          helm template demo-api deploy/helm/demo-api --set database.enabled=true --set database.existingSecret=db --set payments.enabled=true --set payments.existingSecret=pay | kubeconform -strict -summary
+          helm template demo-api deploy/helm/demo-api --set partnerKey.envSecret=pe --set partnerKey.fileSecret=pf | kubeconform -strict -summary
+          helm template payments-svc deploy/helm/payments-svc | kubeconform -strict -summary
+          kubectl kustomize loadtest | kubeconform -strict -summary
+
+  # ---------- image build + security scans (scans are report-only) ----------
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the arm64 image (cross-compiled, no QEMU)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: demo-api:pr-${{ github.event.pull_request.number }}
+      - name: Build the payments-svc arm64 image (same Dockerfile, CMD=payments)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          build-args: CMD=payments
+          tags: payments-svc:pr-${{ github.event.pull_request.number }}
+      - name: "Security: Trivy image scan (report-only)"
+        continue-on-error: true
+        run: |
+          docker save demo-api:pr-${{ github.event.pull_request.number }} -o image.tar
+          docker run --rm -v "$PWD:/w" -w /w "$TRIVY_IMAGE" image --input image.tar \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --format json --output trivy-image.json
+          scripts/ci/summarize-trivy.sh "Trivy image" trivy-image.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: trivy-image
+          path: trivy-image.json
+          if-no-files-found: ignore
+
+  security:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans the whole history
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: "Security: gitleaks secrets scan (report-only)"
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" git /repo \
+            --config /repo/.gitleaks.toml --report-format json --report-path /repo/gitleaks.json --exit-code 0
+          n=$(jq length gitleaks.json)
+          printf '### gitleaks (secrets)\n\nFindings: **%s**\n\n' "$n" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- \(.RuleID) in `\(.File)`:\(.StartLine)"' gitleaks.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Security: gosec via golangci-lint (report-only)"
+        continue-on-error: true
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          golangci-lint run --enable-only gosec --output.text.path gosec.txt --issues-exit-code 0 ./...
+          printf '### gosec (Go SAST)\n\nFindings: **%s**\n\n```\n' "$(grep -c '(gosec)' gosec.txt || true)" >> "$GITHUB_STEP_SUMMARY"
+          cat gosec.txt >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Security: govulncheck dependency scan (report-only)"
+        continue-on-error: true
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... > govulncheck.txt 2>&1 || true
+          printf '### govulncheck (Go dependencies)\n\n```\n' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 40 govulncheck.txt >> "$GITHUB_STEP_SUMMARY"
+          printf '```\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Security: Trivy config scan of Terraform, Dockerfile, rendered chart (report-only)"
+        continue-on-error: true
+        run: |
+          mkdir -p rendered && helm template demo-api deploy/helm/demo-api --set ingress.enabled=true > rendered/demo-api.yaml
+          helm template payments-svc deploy/helm/payments-svc > rendered/payments-svc.yaml
+          docker run --rm -v "$PWD:/w" -w /w "$TRIVY_IMAGE" config --severity HIGH,CRITICAL --exit-code 0 \
+            --format json --output trivy-config.json --skip-dirs .git .
+          scripts/ci/summarize-trivy.sh "Trivy config" trivy-config.json >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            gitleaks.json
+            gosec.txt
+            govulncheck.txt
+            trivy-config.json
+          if-no-files-found: ignore

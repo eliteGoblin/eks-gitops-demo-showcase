@@ -1,0 +1,33 @@
+name: graphql-schema
+# Breaking-change gate for the GraphQL schema, the contract with the web,
+# portal and mobile clients. Separate from pr.yaml so that adding or removing
+# the breaking-change-approved label re-runs only this check.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - internal/adapter/graphql/schema/**
+      - scripts/ci/schema-diff.sh
+      - .github/workflows/graphql-schema.yaml
+permissions:
+  contents: read
+concurrency:
+  group: graphql-schema-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base revision's schema is read with git show
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Diff the schema against the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'breaking-change-approved') }}
+        run: scripts/ci/schema-diff.sh

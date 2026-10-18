@@ -1,0 +1,13 @@
+# The Authorization header is added for you after login.
+{
+  me {
+    subject
+    roles
+    participant {
+      id
+      givenName
+      dateOfBirth
+      plans { id status budgets { category allocated spent remaining } }
+    }
+  }
+}

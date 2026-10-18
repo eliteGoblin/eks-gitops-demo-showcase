@@ -1,0 +1,42 @@
+# cloudflared (wave 3, ordered after the apps it routes to): the Cloudflare
+# Tunnel connector for app., auth., argocd. and grafana. It dials out to
+# Cloudflare, so nothing needs to accept inbound traffic for it. The same app
+# holds the NetworkPolicies that admit it to those four origins (their
+# namespaces must exist, observability included). Terraform creates the tunnel
+# token in Secrets Manager; external-secrets syncs it.
+# An ApplicationSet like the other workloads, so this app's health does not
+# gate the app of apps: until the token exists only this app is Degraded.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudflared
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev}}
+  template:
+    metadata:
+      name: cloudflared
+      annotations: {argocd.argoproj.io/sync-wave: "3"}
+    spec:
+      project: default
+      source:
+        repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+        targetRevision: main
+        path: cloudflared
+      destination: {server: "{{.server}}", namespace: cloudflared}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true]
+        managedNamespaceMetadata:
+          labels: {pod-security.kubernetes.io/enforce: restricted}
+        # Waves do not wait for the apps an ApplicationSet generates: on a fresh
+        # cluster the policies' namespaces may not exist yet, so retry.
+        retry:
+          limit: 5
+          backoff: {duration: 30s, factor: 2, maxDuration: 5m}

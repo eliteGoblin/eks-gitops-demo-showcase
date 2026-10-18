@@ -1,0 +1,30 @@
+# Installed on every cluster whose Argo CD cluster Secret has label enable_metrics_server=true.
+# Values marked {{...}} come from that Secret's annotations (Terraform outputs).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: metrics-server
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_metrics_server: "true" } }
+  template:
+    metadata:
+      name: "metrics-server"
+    spec:
+      project: default
+      source:
+        repoURL: https://kubernetes-sigs.github.io/metrics-server/
+        chart: metrics-server
+        targetRevision: "3.14.0"
+        helm:
+          releaseName: metrics-server
+          valuesObject:
+            {}
+      destination: { server: "{{.server}}", namespace: kube-system }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

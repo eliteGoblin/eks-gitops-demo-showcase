@@ -1,0 +1,11 @@
+  body { margin:0; height:100vh; display:flex; flex-direction:column; font:14px/1.4 system-ui, sans-serif; }
+  #bar { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; padding:8px 14px; border-bottom:1px solid #d9dee6; background:#f6f7f9; }
+  #bar strong { margin-right:6px; }
+  #who.ok { color:#0a7a3f; font-weight:600; } #who.bad { color:#b3261e; }
+  button { font:inherit; padding:4px 10px; border:1px solid #c5ccd6; border-radius:6px; background:#fff; cursor:pointer; }
+  button.primary { background:#1f5eff; border-color:#1f5eff; color:#fff; }
+  #tokenPanel { padding:8px 14px; border-bottom:1px solid #d9dee6; background:#0f172a; color:#e2e8f0; }
+  #tokenPanel pre { margin:0 0 6px; white-space:pre-wrap; word-break:break-all; font-size:12px; max-height:180px; overflow:auto; }
+  #graphiql { flex:1; min-height:0; }
+  .hint { padding:24px; color:#5b6472; }
+  .muted { color:#5b6472; }

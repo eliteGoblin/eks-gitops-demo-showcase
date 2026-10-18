@@ -1,0 +1,14 @@
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#5b6472; --line:#d9dee6; --ok:#0a7a3f; --bad:#b3261e; --accent:#1f5eff; }
+  body { margin:0; font:14px/1.45 system-ui, Segoe UI, sans-serif; color:var(--ink); background:var(--bg); }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:12px 0; }
+  .steps li { margin:2px 0; } .steps code { background:#eef1f5; padding:0 4px; border-radius:3px; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; margin:0 6px 6px 0; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:6px; overflow:auto; max-height:360px; margin:6px 0; font-size:12px; white-space:pre-wrap; word-break:break-all; }
+  textarea { width:100%; box-sizing:border-box; font:12px/1.4 ui-monospace, Consolas, monospace; min-height:120px; }
+  .status { font-weight:600; } .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } @media (max-width:800px) { .grid { grid-template-columns:1fr; } }
+  .log { font-size:12px; color:var(--muted); } .log div { border-top:1px dashed var(--line); padding:3px 0; }

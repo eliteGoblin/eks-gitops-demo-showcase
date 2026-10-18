@@ -1,0 +1,14 @@
+# The load generator: a k6 Job that runs graphql.js against demo-api
+# inside the cluster. Argo CD applies it on a MANUAL sync (see application.yaml),
+# and the Sync hook recreates the Job each time, so "Sync" = "run the load test".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - job.yaml
+configMapGenerator:
+  - name: k6-script
+    files:
+      - graphql.js
+generatorOptions:
+  disableNameSuffixHash: true

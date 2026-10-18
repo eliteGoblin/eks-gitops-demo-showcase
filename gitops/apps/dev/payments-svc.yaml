@@ -1,0 +1,36 @@
+# payments-svc (wave 1): the internal payment processor mock that demo-api
+# calls when a claim is approved. ClusterIP only; its NetworkPolicy admits
+# demo-api pods only. Chart from ECR (OCI), values from this repo; CI promotes
+# a release by bumping targetRevision below, together with demo-api.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: payments-svc
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev}}
+  template:
+    metadata:
+      name: payments-svc
+      annotations: {argocd.argoproj.io/sync-wave: "1"}
+    spec:
+      project: default
+      sources:
+        - repoURL: 852544369865.dkr.ecr.ap-southeast-2.amazonaws.com/charts
+          chart: payments-svc
+          targetRevision: 0.1.53
+          helm:
+            valueFiles: [$values/values/dev/payments-svc.yaml]
+        - repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+          targetRevision: main
+          ref: values
+      destination: {server: "{{.server}}", namespace: demo}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true]

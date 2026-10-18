@@ -1,0 +1,18 @@
+# Overrides for the local kind cluster (see deploy/kind/cluster.yaml).
+image:
+  repository: demo-api
+  tag: dev
+  pullPolicy: Never # preloaded with `kind load`; the node cannot pull through TLS inspection
+config:
+  oidcIssuer: http://keycloak.localtest.me:8180/realms/demo
+  env: dev # http issuer is fine locally
+  playgroundEnabled: true
+  introspectionEnabled: true
+service:
+  type: NodePort
+  nodePort: 30182
+database:
+  enabled: true
+  existingSecret: demo-db # created by deploy/kind/postgres.yaml (dev only)
+  seed: true
+  reloadOnSecretChange: false # no Reloader on kind

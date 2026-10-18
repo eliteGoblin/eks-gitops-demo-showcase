@@ -1,0 +1,6 @@
+apiVersion: v2
+name: keycloak
+description: Keycloak in production mode with its database on RDS (secrets via external-secrets).
+type: application
+version: 0.2.0
+appVersion: "26.5.5"

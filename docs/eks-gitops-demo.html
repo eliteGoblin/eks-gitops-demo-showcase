@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKS GitOps Demo</title>
+<meta name="description" content="Server-side deployment architecture: EKS provisioned by Terraform, cluster add-ons and the app delivered by Argo CD with Helm as the render engine, CI on GitHub Actions pushing to ECR.">
+<link rel="stylesheet" href="style.css">
+<style>
+:root{
+  --tf:#7048e8; --tf-soft:#efeafe; --argo:#e8590c; --argo-soft:#fff0e4; --ci:#0c8a5f; --ci-soft:#e0f5ec;
+  --ctl:#d6336c; --ctl-soft:#fdebf1; --art:#1c7ed6; --art-soft:#e6f1fc; --you:#5b6470; --you-soft:#eef1f4;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}}
+:root[data-theme="dark"]{
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}
+.dia{overflow-x:auto;margin:14px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}
+.dia svg{display:block;min-width:960px;width:100%;height:auto}
+.dia text{font-family:var(--font);fill:var(--ink)}
+.dia .h{font-size:14px;font-weight:700}
+.dia .t{font-size:12.5px;font-weight:600}
+.dia .s{font-size:11px;fill:var(--muted)}
+.dia .sw .t{font-size:11.5px}
+.dia .frame{fill:none;stroke:var(--line);stroke-width:1.5}
+.dia .vpc{fill:none;stroke:var(--tf);stroke-width:1.5;stroke-dasharray:7 5}
+.dia .cluster{fill:var(--tf-soft);fill-opacity:.35;stroke:var(--tf);stroke-width:2}
+.dia .col{fill:var(--surface);fill-opacity:.7;stroke-width:1.5;stroke-dasharray:5 4}
+.dia rect.tf{fill:var(--tf-soft);stroke:var(--tf)} .dia rect.argo{fill:var(--argo-soft);stroke:var(--argo)}
+.dia rect.ci{fill:var(--ci-soft);stroke:var(--ci)} .dia rect.ctl{fill:var(--ctl-soft);stroke:var(--ctl)}
+.dia rect.art{fill:var(--art-soft);stroke:var(--art)} .dia rect.you{fill:var(--you-soft);stroke:var(--you)}
+.dia rect.tf,.dia rect.argo,.dia rect.ci,.dia rect.ctl,.dia rect.art,.dia rect.you{stroke-width:1.5}
+.dia .lane{stroke:none;fill-opacity:.55}
+.dia .c-tf{fill:var(--tf)} .dia .c-argo{fill:var(--argo)} .dia .c-ci{fill:var(--ci)} .dia .c-ctl{fill:var(--ctl)} .dia .c-art{fill:var(--art)} .dia .c-you{fill:var(--you)}
+.dia .flow{fill:none;stroke:var(--muted);stroke-width:1.6}
+.dia .flow-ctl{fill:none;stroke:var(--ctl);stroke-width:1.8;stroke-dasharray:5 4}
+.dia .flow-argo{fill:none;stroke:var(--argo);stroke-width:1.8}
+.dia .dash{stroke-dasharray:5 4}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 4px;font-size:13.5px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:4px;border:2px solid}
+.legend .tf{background:var(--tf-soft);border-color:var(--tf)} .legend .argo{background:var(--argo-soft);border-color:var(--argo)}
+.legend .ci{background:var(--ci-soft);border-color:var(--ci)} .legend .ctl{background:var(--ctl-soft);border-color:var(--ctl)}
+.legend .art{background:var(--art-soft);border-color:var(--art)} .legend .you{background:var(--you-soft);border-color:var(--you)}
+td .tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.tag.tf{background:var(--tf-soft);color:var(--tf)} .tag.argo{background:var(--argo-soft);color:var(--argo)}
+.tag.ci{background:var(--ci-soft);color:var(--ci)} .tag.ctl{background:var(--ctl-soft);color:var(--ctl)} .tag.you{background:var(--you-soft);color:var(--you)}
+ul.checks{list-style:none;padding-left:4px} ul.checks li::before{content:"☐ ";color:var(--accent);font-weight:700}
+details{margin:8px 0 14px}
+summary{cursor:pointer;font-weight:600;color:var(--accent)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+ol.steps li{margin:4px 0}
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><span class="brand">eks-gitops-demo</span>
+<a href="#map">Ownership map</a><a href="#files">Which file configures what</a><a href="#bootstrap">Bootstrap</a><a href="#argo">Argo CD</a><a href="#helm">Helm</a><a href="#release">Release flow</a><a href="#runtime">Runtime</a><a href="#secrets">Secrets</a><a href="#state">State &amp; scaling</a><a href="#ready">Readiness</a><a href="#decisions">Decisions</a><a href="eks-gitops-demo-app.html">App &amp; observability →</a><a href="eks-gitops-demo-code.html">Code architecture →</a>
+</div></header>
+<main>
+<h1>EKS + Terraform + Argo CD + Helm: deployment architecture</h1>
+<p class="sub">Server-side solution for a containerised Go GraphQL API (<code>demo-api</code>) plus an OIDC provider (Keycloak) on AWS EKS, in one region. Prepared 2026-10-16.</p>
+
+<div class="card note">
+<p><strong>In one paragraph:</strong> Terraform builds the AWS foundation and installs exactly one thing into Kubernetes: Argo CD. From then on, Git is the source of truth for everything inside the cluster. Argo CD pulls a gitops repo and applies it, using Helm only to render YAML. GitHub Actions tests and builds, pushes the image and chart to ECR, and proposes the new version to the gitops repo as a pull request. CI never holds cluster credentials.</p>
+</div>
+
+<h2 id="glance" style="border-top:none;margin-top:24px;padding-top:0">Key decisions at a glance</h2>
+<table>
+<tr><th>Decision</th><th>Choice</th><th>Main alternative(s)</th><th>Why</th></tr>
+<tr><td><a href="#files">IaC boundary</a></td><td>Terraform for AWS objects; Argo CD for Kubernetes objects (GitOps bridge)</td><td>Terraform Helm provider for everything</td><td>No chicken-and-egg at plan time; drift is self-healed; one rollback model</td></tr>
+<tr><td><a href="#release">CD model</a></td><td>Pull: Argo CD syncs from the gitops repo</td><td>CI pushes with <code>kubectl</code>/<code>helm</code></td><td>CI holds no cluster credentials; every change is a commit</td></tr>
+<tr><td><a href="#helm">Helm role</a></td><td>Render engine only; the chart is an OCI artifact in ECR</td><td><code>helm install</code> from CI; a chart server</td><td>Build once, promote the same chart + image; rollback = git revert</td></tr>
+<tr><td><a href="#decisions">Ingress</a></td><td>ALB via the AWS Load Balancer Controller</td><td>Gateway API + kgateway / Envoy Gateway / Istio</td><td>Managed data plane, ACM/WAF built in, least to operate</td></tr>
+<tr><td><a href="#decisions">HTTPS</a></td><td>Domain <code>eksgitops.click</code> + ACM on the ALB</td><td>CloudFront default domain; self-signed certificate</td><td>Trusted certificate, stable hostnames, US$3/year</td></tr>
+<tr><td><a href="#bootstrap">Pod → AWS auth</a></td><td>EKS Pod Identity</td><td>IRSA (OIDC provider + role annotation)</td><td>No per-cluster OIDC setup; no ARNs in Helm values</td></tr>
+<tr><td><a href="#ideas">Nodes</a></td><td>Managed node group, 2 × t4g.large Graviton, On-Demand</td><td>Spot, Karpenter, EKS Auto Mode</td><td>Cheapest predictable setup; no interruptions during a demo</td></tr>
+<tr><td><a href="#secrets">Secrets</a></td><td>AWS Secrets Manager is the source of truth; External Secrets Operator (ESO) syncs to K8s Secrets; Reloader rolls pods on change</td><td>SOPS as the authoring layer (chosen: <code>secrets/*.enc.yaml</code> → CI → Secrets Manager); SOPS decrypted by Argo (rejected); Secrets Store CSI; Vault (enterprise)</td><td>Nothing secret in Git or state; rotation needs no commit; every read audited</td></tr>
+<tr><td><a href="#state">State</a></td><td>RDS Postgres <code>db.t4g.micro</code>, single-AZ, password managed by RDS</td><td>In-cluster Postgres; DynamoDB; Aurora Serverless v2</td><td>Stateless API pods can scale; managed DB; ~50¢/day</td></tr>
+<tr><td><a href="#state">Autoscaling</a></td><td>HPA on CPU, 2–6 pods</td><td>KEDA, VPA, Karpenter (nodes)</td><td>Built in; only needs metrics-server; easy to demo</td></tr>
+<tr><td><a href="eks-gitops-demo-app.html#otel">Observability</a></td><td>OpenTelemetry Go SDK → ADOT collector (Argo) → X-Ray traces, Managed Prometheus metrics, CloudWatch Logs via Fluent Bit; <strong>self-hosted Grafana</strong> (Argo) as the UI with Keycloak SSO</td><td>Amazon Managed Grafana; CloudWatch Observability add-on only; self-hosted Prometheus/Tempo; SaaS</td><td>AWS runs the data backends; Grafana works for public guest logins at ~zero cost (AMG needs Identity Center per viewer)</td></tr>
+<tr><td><a href="eks-gitops-demo-app.html#identity">Identity</a></td><td>Keycloak in production mode on RDS; realm as code (keycloak-config-cli PostSync Job); SSO for app, Argo CD and Grafana; <code>demo.guest</code> read-only everywhere</td><td>Keycloak dev mode with realm import; Cognito</td><td>Users persist; Git-reviewed realm changes; one login for every public host</td></tr>
+<tr><td><a href="eks-gitops-demo-code.html#arch">App architecture</a></td><td>Go clean architecture (domain / app / adapter) on a shared service kit; two services (demo-api, payments-svc)</td><td>One flat package per feature</td><td>Business rules testable without I/O; a new service gets logging, tracing, auth and health for free</td></tr>
+<tr><td><a href="eks-gitops-demo-app.html#decided">Scope (2026-10-16)</a></td><td>dev environment only; Argo CD UI public with Keycloak SSO; Terraform from the laptop first, IaC pipeline after</td><td>dev + prod namespaces; Argo via port-forward; CI-run Terraform from day 1</td><td>Fastest path to a working, showable demo; the pipeline follows once the build is proven</td></tr>
+</table>
+
+<p><strong>Colour key, used in every diagram and table:</strong> the colour tells you <em>who creates or configures</em> the thing.</p>
+<div class="legend">
+<span><i class="tf"></i>Terraform</span><span><i class="argo"></i>Argo CD (from Git)</span><span><i class="ctl"></i>Created at runtime by a controller</span><span><i class="ci"></i>GitHub Actions (CI)</span><span><i class="art"></i>Artifact / Git store</span><span><i class="you"></i>You</span>
+</div>
+
+<h2 id="map">1. Ownership map: what runs where, and who owns it</h2>
+<div class="dia">
+<svg viewBox="0 0 1180 540" role="img" aria-labelledby="d1t">
+<title id="d1t">AWS account containing a Terraform-built VPC and EKS cluster. Inside the cluster: platform add-ons installed by Argo CD, EKS managed add-ons and Argo CD installed by Terraform, and the demo namespace applied by Argo CD.</title>
+<defs>
+<marker id="d1-ctl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ctl)"/></marker>
+<marker id="d1-argo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--argo)"/></marker>
+</defs>
+<rect class="frame" x="8" y="8" width="1164" height="524" rx="12"/>
+<text class="h" x="24" y="32">AWS account · ap-southeast-2</text>
+
+<rect class="tf" x="24" y="50" width="216" height="44" rx="8"/><text class="t" x="36" y="69">S3 bucket</text><text class="s" x="36" y="85">Terraform state, native locking</text>
+<rect class="tf" x="24" y="104" width="216" height="44" rx="8"/><text class="t" x="36" y="123">IAM roles</text><text class="s" x="36" y="139">CI (GitHub OIDC) · Pod Identity</text>
+<rect class="ctl" x="24" y="160" width="216" height="44" rx="8"/><text class="t" x="36" y="179">Application Load Balancer</text><text class="s" x="36" y="195">created by the LB controller</text>
+<rect class="tf" x="24" y="212" width="216" height="44" rx="8"/><text class="t" x="36" y="231">Route 53 zone</text><text class="s" x="36" y="247">records written by external-dns</text>
+<rect class="tf" x="24" y="264" width="216" height="44" rx="8"/><text class="t" x="36" y="283">Secrets Manager</text><text class="s" x="36" y="299">read by external-secrets</text>
+<rect class="tf" x="24" y="316" width="216" height="44" rx="8"/><text class="t" x="36" y="335">ACM cert *.eksgitops.click</text><text class="s" x="36" y="351">bootstrap layer · auto-renews</text>
+<rect class="tf" x="24" y="368" width="216" height="44" rx="8"/><text class="t" x="36" y="387">ECR repositories</text><text class="s" x="36" y="403">image + chart pushed by CI</text>
+<rect class="tf" x="24" y="420" width="216" height="44" rx="8"/><text class="t" x="36" y="439">RDS Postgres</text><text class="s" x="36" y="455">private subnet · managed password</text>
+<rect class="tf" x="24" y="472" width="216" height="44" rx="8"/><text class="t" x="36" y="491">X-Ray · Prometheus · Logs</text><text class="s" x="36" y="507">AWS-managed telemetry backends</text>
+
+<rect class="vpc" x="256" y="44" width="904" height="472" rx="12"/>
+<text x="272" y="66"><tspan class="h c-tf">VPC</tspan><tspan class="s" dx="8">2 AZs · public + private subnets · Terraform</tspan></text>
+<rect class="cluster" x="272" y="78" width="872" height="422" rx="12"/>
+<text x="288" y="100"><tspan class="h c-tf">EKS cluster</tspan><tspan class="s" dx="8">control plane operated by AWS · version, endpoint, access entries set by Terraform</tspan></text>
+
+<rect class="col" x="288" y="112" width="200" height="320" rx="10" style="stroke:var(--argo)"/>
+<text class="h c-argo" x="300" y="134">Platform add-ons</text><text class="s" x="300" y="150">Argo CD · ApplicationSets</text>
+<rect class="argo" x="298" y="160" width="180" height="44" rx="8"/><text class="t" x="310" y="179">aws-lb-controller</text><text class="s" x="310" y="195">Ingress → ALB</text>
+<rect class="argo" x="298" y="212" width="180" height="44" rx="8"/><text class="t" x="310" y="231">external-dns</text><text class="s" x="310" y="247">Ingress host → DNS record</text>
+<rect class="argo" x="298" y="264" width="180" height="44" rx="8"/><text class="t" x="310" y="283">external-secrets</text><text class="s" x="310" y="299">AWS secret → K8s Secret</text>
+<rect class="argo" x="298" y="316" width="180" height="44" rx="8"/><text class="t" x="310" y="335">metrics-server</text><text class="s" x="310" y="351">CPU/memory for HPA</text>
+<rect class="argo" x="298" y="368" width="180" height="44" rx="8"/><text class="t" x="310" y="387">reloader</text><text class="s" x="310" y="403">Secret changed → roll pods</text>
+
+<rect class="col" x="502" y="112" width="200" height="320" rx="10" style="stroke:var(--tf)"/>
+<text class="h c-tf" x="514" y="134">EKS managed add-ons</text><text class="s" x="514" y="150">Terraform · kube-system</text>
+<rect class="tf" x="512" y="160" width="180" height="44" rx="8"/><text class="t" x="524" y="179">vpc-cni</text><text class="s" x="524" y="195">pod IPs, NetworkPolicy</text>
+<rect class="tf" x="512" y="212" width="180" height="44" rx="8"/><text class="t" x="524" y="231">coredns</text><text class="s" x="524" y="247">cluster DNS</text>
+<rect class="tf" x="512" y="264" width="180" height="44" rx="8"/><text class="t" x="524" y="283">kube-proxy</text><text class="s" x="524" y="299">Service routing</text>
+<rect class="tf" x="512" y="316" width="180" height="44" rx="8"/><text class="t" x="524" y="335">pod-identity-agent</text><text class="s" x="524" y="351">pod → IAM role credentials</text>
+
+<rect class="col" x="716" y="112" width="200" height="320" rx="10" style="stroke:var(--tf)"/>
+<text class="h c-tf" x="728" y="134">Argo CD</text><text class="s" x="728" y="150">Terraform helm_release · argocd</text>
+<rect class="tf" x="726" y="160" width="180" height="44" rx="8"/><text class="t" x="738" y="179">argocd-server</text><text class="s" x="738" y="195">UI, API, SSO</text>
+<rect class="tf" x="726" y="212" width="180" height="44" rx="8"/><text class="t" x="738" y="231">repo-server</text><text class="s" x="738" y="247">git clone + helm template</text>
+<rect class="tf" x="726" y="264" width="180" height="44" rx="8"/><text class="t" x="738" y="283">application-controller</text><text class="s" x="738" y="299">diff → apply → self-heal</text>
+<rect class="tf" x="726" y="316" width="180" height="44" rx="8"/><text class="t" x="738" y="335">applicationset-controller</text><text class="s" x="738" y="351">templates → Applications</text>
+<rect class="tf" x="726" y="368" width="180" height="44" rx="8"/><text class="t" x="738" y="387">root Application</text><text class="s" x="738" y="403">app of apps (bootstrap)</text>
+
+<rect class="col" x="930" y="112" width="200" height="320" rx="10" style="stroke:var(--argo)"/>
+<text class="h c-argo" x="942" y="134">demo namespace</text><text class="s" x="942" y="150">Argo CD · rendered by Helm</text>
+<rect class="argo" x="940" y="160" width="180" height="44" rx="8"/><text class="t" x="952" y="179">demo-api Deployment</text><text class="s" x="952" y="195">image from ECR, probes</text>
+<rect class="argo" x="940" y="212" width="180" height="44" rx="8"/><text class="t" x="952" y="231">Service + Ingress</text><text class="s" x="952" y="247">ALB rule app.frankbluemind.com</text>
+<rect class="argo" x="940" y="264" width="180" height="44" rx="8"/><text class="t" x="952" y="283">ConfigMap</text><text class="s" x="952" y="299">OIDC issuer, audience</text>
+<rect class="ctl" x="940" y="316" width="180" height="44" rx="8"/><text class="t" x="952" y="335">Secret</text><text class="s" x="952" y="351">synced by external-secrets</text>
+<rect class="argo" x="940" y="368" width="180" height="44" rx="8"/><text class="t" x="952" y="387">Keycloak</text><text class="s" x="952" y="403">auth.frankbluemind.com</text>
+
+<rect class="tf" x="288" y="446" width="842" height="40" rx="8"/>
+<text x="304" y="471"><tspan class="t">Managed node group</tspan><tspan class="s" dx="8">2 × t4g.large Graviton · Amazon Linux 2023 · kubelet pulls images from ECR · Terraform</tspan></text>
+
+<path class="flow-ctl" d="M298 182 H242" marker-end="url(#d1-ctl)"/>
+<path class="flow-ctl" d="M298 234 H242" marker-end="url(#d1-ctl)"/>
+<path class="flow-ctl" d="M298 286 H242" marker-end="url(#d1-ctl)"/>
+<path class="flow-argo" d="M906 286 H938" marker-end="url(#d1-argo)"/>
+</svg>
+</div>
+<div class="card">
+<p><strong>How to read it:</strong></p>
+<ul>
+<li><strong>Purple</strong> things exist because <code>terraform apply</code> ran. They change only through a Terraform change.</li>
+<li><strong>Orange</strong> things exist because a YAML file is in the gitops repo; Argo CD applies it and keeps re-applying it. Edit the cluster by hand and Argo reverts it.</li>
+<li><strong>Pink</strong> things nobody declares directly: a controller creates them from a Kubernetes object.
+  <ul>
+  <li>An Ingress becomes an ALB.</li>
+  <li>An Ingress host becomes a Route 53 record.</li>
+  <li>An ExternalSecret becomes a Secret.</li>
+  </ul>
+  The pink arrows are those controllers calling AWS APIs, authorised by IAM roles from Terraform through Pod Identity.</li>
+<li>The EKS <em>control plane</em> (API server, etcd) is run by AWS. Terraform only chooses its settings.</li>
+<li>Not drawn: the <strong>ADOT collector</strong> and <strong>Fluent Bit</strong> (orange, installed by Argo in an <code>observability</code> namespace) that ship traces, metrics and logs to the AWS-managed backends. See <a href="eks-gitops-demo-app.html#otel">App &amp; observability</a>.</li>
+</ul>
+</div>
+
+<h2 id="files">2. Which file configures what</h2>
+<p>Two repos. The <strong>app repo</strong> holds code, the chart, CI and Terraform. The <strong>gitops repo</strong> holds the desired state of the cluster, i.e. what Argo CD applies.</p>
+<table>
+<tr><th>File</th><th>Read by</th><th>Creates / configures</th></tr>
+<tr><td colspan="3"><strong>app repo</strong></td></tr>
+<tr><td><code>infra/bootstrap/*.tf</code></td><td><span class="tag tf">terraform</span></td><td>S3 state bucket, ECR repos <code>demo-api</code> and <code>charts/demo-api</code> (immutable tags), GitHub OIDC provider + <code>ci-ecr-push</code> role. ACM certificate for <code>eksgitops.click</code> + <code>*.eksgitops.click</code>, DNS-validated in the hosted zone the registration created (<code>aws_acm_certificate</code> + validation <code>aws_route53_record</code> + <code>aws_acm_certificate_validation</code>); auto-renews. Applied once; stays.</td></tr>
+<tr><td><code>infra/eks/vpc.tf</code></td><td><span class="tag tf">terraform</span></td><td>VPC, 2 public + 2 private subnets. Public subnets tagged <code>kubernetes.io/role/elb=1</code> so the LB controller knows where to put the ALB.</td></tr>
+<tr><td><code>infra/eks/eks.tf</code></td><td><span class="tag tf">terraform</span></td><td>Cluster, managed node group, EKS managed add-ons, access entries (who may use <code>kubectl</code>).</td></tr>
+<tr><td><code>infra/eks/pod-identity.tf</code></td><td><span class="tag tf">terraform</span></td><td>An IAM role + Pod Identity association per controller: LB controller, external-dns, external-secrets.</td></tr>
+<tr><td><code>infra/eks/secrets.tf</code></td><td><span class="tag tf">terraform</span></td><td><em>Empty</em> Secrets Manager entries (<code>demo/demo-api/*</code>, Keycloak admin) + IAM read access for ESO. Never the values.</td></tr>
+<tr><td><code>infra/eks/rds.tf</code></td><td><span class="tag tf">terraform</span></td><td>RDS Postgres <code>db.t4g.micro</code> in the private subnets, security group open to the cluster only, <code>manage_master_user_password = true</code>.</td></tr>
+<tr><td><code>Makefile</code> → <code>secrets-seed</code></td><td><span class="tag you">you</span></td><td>Reads a local, git-ignored <code>.env</code> and runs <code>aws secretsmanager put-secret-value</code>. The only way values enter AWS.</td></tr>
+<tr><td><code>infra/argocd/*.tf</code> (separate root, applied after <code>infra/eks</code>)</td><td><span class="tag tf">terraform</span> (helm + kubernetes providers)</td><td>Argo CD release, the root Application, and the <strong>bridge</strong> cluster Secret (Terraform outputs as annotations).</td></tr>
+<tr><td><code>infra/eks/observability.tf</code></td><td><span class="tag tf">terraform</span></td><td>Managed Prometheus workspace, CloudWatch log groups (7-day retention), SNS alert topic, Pod Identity roles for the collector, Fluent Bit and Grafana (read AMP, X-Ray, CloudWatch).</td></tr>
+<tr><td><code>Dockerfile</code></td><td><span class="tag ci">CI</span></td><td>The arm64 image <code>demo-api:&lt;git sha&gt;</code>.</td></tr>
+<tr><td><code>deploy/helm/demo-api/</code></td><td><span class="tag ci">CI</span> packages · <span class="tag argo">Argo CD</span> renders</td><td>Templates for Deployment, Service, Ingress, ConfigMap, <code>hpa.yaml</code>, <code>pdb.yaml</code>, <code>externalsecret.yaml</code>, migration Job (PreSync). CI pushes the chart to ECR as <code>charts/demo-api:0.1.N</code>.</td></tr>
+<tr><td><code>.github/workflows/pr.yaml</code>, <code>release.yaml</code></td><td><span class="tag ci">GitHub Actions</span></td><td>PR checks; on merge: image + chart to ECR, then a PR to the gitops repo.</td></tr>
+<tr><td><code>.github/workflows/tf-plan.yaml</code>, <code>tf-apply.yaml</code>, <code>scripts/ci/tf.sh</code></td><td><span class="tag ci">GitHub Actions</span></td><td>PRs: fmt, validate, tflint, Trivy config and a read-only plan per root (sticky comment, addresses and actions only). Merge: every root planned with <code>plan -detailed-exitcode</code>, the ones with changes applied in order, with the S3 lockfile. Roles <code>ci-terraform-plan</code> (read-only, secret reads denied) and <code>ci-terraform</code>. <strong>Auto-apply on since 2026-10-16</strong> (repository variable <code>TF_AUTO_APPLY=true</code>): infrastructure changes go through pull requests and CI applies them on merge; laptop applies are break-glass only, with the variable set to <code>false</code> first. It was <code>false</code> during the parallel build and flipped once the unused IRSA provider was removed and a full plan showed no changes.</td></tr>
+<tr><td><code>secrets/&lt;env&gt;/&lt;service&gt;.enc.yaml</code>, <code>.sops.yaml</code>, <code>.github/workflows/secrets-sync.yaml</code></td><td><span class="tag you">you</span> author · <span class="tag ci">GitHub Actions</span> syncs</td><td>Human-authored secrets, sops-encrypted under KMS <code>alias/sops-demo</code>; on merge the sync role writes Secrets Manager <code>demo/&lt;env&gt;/&lt;service&gt;/&lt;key&gt;</code> (unchanged values skipped). Runtime still reads Secrets Manager through ESO.</td></tr>
+<tr><td colspan="3"><strong>gitops repo</strong></td></tr>
+<tr><td><code>bootstrap/addons.yaml</code>, <code>bootstrap/apps.yaml</code></td><td><span class="tag argo">Argo CD</span> (root app)</td><td>Two child Applications: one for <code>addons/</code>, one for <code>apps/dev/</code>.</td></tr>
+<tr><td><code>addons/*.yaml</code></td><td><span class="tag argo">ApplicationSet controller</span></td><td>One Application per add-on (upstream chart + pinned version), incl. <code>reloader.yaml</code> and <code>external-secrets.yaml</code>. Values such as cluster name and VPC id come from the bridge Secret.</td></tr>
+<tr><td><code>addons/adot-collector.yaml</code>, <code>addons/fluent-bit.yaml</code></td><td><span class="tag argo">ApplicationSet controller</span></td><td>OpenTelemetry collector (OTLP in → X-Ray + Managed Prometheus out) and the log shipper (node logs → CloudWatch Logs).</td></tr>
+<tr><td><code>addons/grafana.yaml</code></td><td><span class="tag argo">ApplicationSet controller</span></td><td>Self-hosted Grafana at <code>grafana.frankbluemind.com</code>: Keycloak SSO, data sources (AMP, X-Ray, CloudWatch) and dashboards provisioned from Git.</td></tr>
+<tr><td><code>apps/dev/keycloak-config.yaml</code> + <code>config/keycloak/realm.yaml</code></td><td><span class="tag argo">Argo CD</span> (PostSync Job)</td><td>keycloak-config-cli applies the realm as code: clients, roles, groups, users (<code>zhaolin.sun</code>, <code>case.officer</code>, <code>demo.guest</code>), mappers, brute-force protection.</td></tr>
+<tr><td><code>apps/dev/payments-svc.yaml</code></td><td><span class="tag argo">Argo CD</span></td><td>The internal second service (ClusterIP only, NetworkPolicy: demo-api only); see the <a href="eks-gitops-demo-code.html#services">code page</a>.</td></tr>
+<tr><td><code>apps/dev/demo-api.yaml</code></td><td><span class="tag argo">Argo CD</span></td><td>Application: <em>which chart version</em> from ECR + <em>which values file</em>.</td></tr>
+<tr><td><code>values/dev/demo-api.yaml</code></td><td><span class="tag argo">repo-server</span> (helm template)</td><td>Image tag, hostnames, OIDC issuer, replicas: everything that differs per environment.</td></tr>
+<tr><td colspan="3"><strong>nobody's file: created at runtime</strong></td></tr>
+<tr><td>ALB, target groups, listener rules</td><td><span class="tag ctl">LB controller</span></td><td>From every Ingress with <code>className: alb</code>; the certificate is matched to the host automatically.</td></tr>
+<tr><td>Route 53 A/AAAA records</td><td><span class="tag ctl">external-dns</span></td><td>From Ingress hosts.</td></tr>
+<tr><td>Kubernetes Secrets</td><td><span class="tag ctl">external-secrets</span></td><td>From ExternalSecret objects that point at Secrets Manager.</td></tr>
+<tr><td>Database password + its rotation</td><td><span class="tag ctl">RDS</span></td><td>RDS generates the master password, stores it in Secrets Manager and rotates it; ESO picks up each new version.</td></tr>
+<tr><td>Pod count</td><td><span class="tag ctl">HPA</span></td><td>2–6 replicas from CPU load; Argo ignores <code>/spec/replicas</code>.</td></tr>
+</table>
+
+<h2 id="bootstrap">3. Bootstrap: from empty account to running app</h2>
+<div class="dia">
+<svg class="sw" viewBox="0 0 1180 322" role="img" aria-labelledby="d2t">
+<title id="d2t">Swimlane of 8 bootstrap steps across You, Terraform, Argo CD and controllers.</title>
+<defs><marker id="d2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="lane" x="8" y="12" width="1164" height="70" rx="8" style="fill:var(--you-soft)"/><text class="h c-you" x="20" y="51">You</text>
+<rect class="lane" x="8" y="88" width="1164" height="70" rx="8" style="fill:var(--tf-soft)"/><text class="h c-tf" x="20" y="127">Terraform</text>
+<rect class="lane" x="8" y="164" width="1164" height="70" rx="8" style="fill:var(--argo-soft)"/><text class="h c-argo" x="20" y="203">Argo CD</text>
+<rect class="lane" x="8" y="240" width="1164" height="70" rx="8" style="fill:var(--ctl-soft)"/><text class="h c-ctl" x="20" y="279">Controllers</text>
+
+<rect class="you" x="140" y="22" width="120" height="50" rx="8"/><text class="t" x="150" y="43">① terraform apply</text><text class="s" x="150" y="60">infra/bootstrap</text>
+<rect class="tf" x="268" y="98" width="120" height="50" rx="8"/><text class="t" x="278" y="119">② S3, ECR, ACM</text><text class="s" x="278" y="136">CI role (OIDC)</text>
+<rect class="you" x="396" y="22" width="120" height="50" rx="8"/><text class="t" x="406" y="43">③ terraform apply</text><text class="s" x="406" y="60">infra/eks</text>
+<rect class="tf" x="524" y="98" width="120" height="50" rx="8"/><text class="t" x="534" y="119">④ VPC + EKS</text><text class="s" x="534" y="136">nodes, add-ons, IAM</text>
+<rect class="tf" x="652" y="98" width="120" height="50" rx="8"/><text class="t" x="662" y="119">⑤ Argo CD (helm)</text><text class="s" x="662" y="136">root app + bridge</text>
+<rect class="argo" x="780" y="174" width="120" height="50" rx="8"/><text class="t" x="790" y="195">⑥ root app syncs</text><text class="s" x="790" y="212">→ addons, apps</text>
+<rect class="argo" x="908" y="174" width="120" height="50" rx="8"/><text class="t" x="918" y="195">⑦ Argo applies</text><text class="s" x="918" y="212">add-ons, then apps</text>
+<rect class="ctl" x="1036" y="250" width="120" height="50" rx="8"/><text class="t" x="1046" y="271">⑧ controllers act</text><text class="s" x="1046" y="288">ALB, DNS, Secrets</text>
+
+<path class="flow" d="M260 47 H264 V123 H266" marker-end="url(#d2-a)"/>
+<path class="flow" d="M388 123 H392 V47 H394" marker-end="url(#d2-a)"/>
+<path class="flow" d="M516 47 H520 V123 H522" marker-end="url(#d2-a)"/>
+<path class="flow" d="M644 123 H650" marker-end="url(#d2-a)"/>
+<path class="flow" d="M772 123 H776 V199 H778" marker-end="url(#d2-a)"/>
+<path class="flow" d="M900 199 H906" marker-end="url(#d2-a)"/>
+<path class="flow" d="M1028 199 H1032 V275 H1034" marker-end="url(#d2-a)"/>
+</svg>
+</div>
+<ol class="steps">
+<li><strong>Bootstrap layer.</strong> Run once by hand, with local state that is then migrated into the S3 bucket it just created.</li>
+<li>Creates what must outlive any cluster: the state bucket, the ECR repos, the IAM role GitHub Actions assumes through OIDC, and the ACM certificate. Public ACM certificates are free and DNS validation takes minutes, so the certificate survives <code>eks-down</code>/<code>eks-up</code>.</li>
+<li><strong>Cluster layer</strong> (<code>make eks-up</code>), run from your laptop for the initial build as an IAM admin, never as root. Built 2026-10-16: the IaC pipeline (<code>tf-plan.yaml</code> on pull requests, <code>tf-apply.yaml</code> on <code>main</code>, both via GitHub OIDC roles with trust pinned to the one workflow file) now applies every change under <code>infra/</code>; the <code>argocd</code> root is planned only on <code>main</code> because its plan reads in-cluster Secrets.</li>
+<li>Builds the VPC, cluster and nodes. Installs the EKS managed add-ons (<code>vpc-cni</code> and <code>pod-identity-agent</code> before the nodes, so pods get IPs and credentials from the first boot) and the IAM roles for the controllers.</li>
+<li>Installs Argo CD and the root Application. Writes the <strong>bridge</strong>: an Argo CD cluster Secret whose labels say which add-ons to enable and whose annotations carry Terraform outputs (cluster name, VPC id, region, domain). From here on Terraform stops.</li>
+<li>Argo CD syncs <code>bootstrap/</code> in the gitops repo and creates the <code>addons</code> and <code>apps</code> Applications (app of apps).</li>
+<li>Sync waves order things: add-ons first (wave 0), then Keycloak and demo-api (wave 1).</li>
+<li>Controllers turn Kubernetes objects into AWS resources: an ALB with the ACM certificate, DNS records, Secrets. The app is reachable at <code>https://app.frankbluemind.com</code>.</li>
+</ol>
+<p class="small">Teardown (<code>make eks-down</code>): delete the Ingresses first so the LB controller removes the ALB, then run <code>terraform destroy</code> on <code>infra/eks</code>. Otherwise an orphaned ALB blocks VPC deletion. The bootstrap layer stays.</p>
+
+<h3>Terraform: key files</h3>
+<details><summary>infra/eks/vpc.tf + eks.tf</summary>
+<pre><code>module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  name    = "eks-gitops-demo"
+  cidr    = "10.0.0.0/16"
+  azs             = ["ap-southeast-2a", "ap-southeast-2b"]
+  public_subnets  = ["10.0.0.0/20", "10.0.16.0/20"]
+  private_subnets = ["10.0.32.0/20", "10.0.48.0/20"]
+  enable_nat_gateway      = false           # demo: nodes in public subnets, saves ~US$45/month
+  map_public_ip_on_launch = true
+  public_subnet_tags      = { "kubernetes.io/role/elb" = 1 }   # where the ALB may go
+}
+
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~&gt; 21.0"
+
+  name               = "eks-gitops-demo"
+  kubernetes_version = "1.37"
+  endpoint_public_access       = true
+  endpoint_public_access_cidrs = [var.admin_cidr]          # only your IP can reach the API
+  enable_cluster_creator_admin_permissions = true          # access entry for the admin running Terraform
+
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.public_subnets
+
+  addons = {                                              # EKS managed add-ons (AWS API objects)
+    vpc-cni                = { before_compute = true }
+    eks-pod-identity-agent = { before_compute = true }
+    coredns                = {}
+    kube-proxy             = {}
+  }
+
+  eks_managed_node_groups = {
+    default = {
+      ami_type       = "AL2023_ARM_64_STANDARD"
+      instance_types = ["t4g.large"]
+      capacity_type  = "ON_DEMAND"                         # idea: SPOT
+      min_size       = 2
+      max_size       = 3
+      desired_size   = 2
+    }
+  }
+}</code></pre>
+</details>
+<details><summary>infra/eks/pod-identity.tf</summary>
+<pre><code>module "lbc_pod_identity" {
+  source = "terraform-aws-modules/eks-pod-identity/aws"
+  name   = "aws-lbc"
+  attach_aws_lb_controller_policy = true
+  associations = {
+    main = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "aws-load-balancer-controller"
+    }
+  }
+}
+# Same pattern for external-dns (scoped to the hosted zone)
+# and external-secrets (scoped to the demo/* secrets).</code></pre>
+<p class="small">With Pod Identity, the service account needs no role annotation: AWS maps <em>namespace + service account</em> to the role. That is why the Helm values for the controllers stay free of ARNs.</p>
+</details>
+<details><summary>infra/argocd/argocd.tf: Argo CD install + the GitOps bridge (its own root, so the providers target an existing cluster)</summary>
+<pre><code>resource "helm_release" "argocd" {
+  name             = "argocd"
+  namespace        = "argocd"
+  create_namespace = true
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-cd"
+  version          = var.argocd_chart_version
+}
+
+# The bridge: Terraform outputs handed to Argo CD as a cluster Secret.
+resource "kubernetes_secret_v1" "in_cluster" {
+  metadata {
+    name      = "in-cluster"
+    namespace = "argocd"
+    labels = {
+      "argocd.argoproj.io/secret-type"     = "cluster"
+      enable_aws_load_balancer_controller = "true"
+      enable_external_dns                 = "true"
+      enable_external_secrets             = "true"
+    }
+    annotations = {
+      cluster_name = module.eks.cluster_name
+      vpc_id       = module.vpc.vpc_id
+      aws_region   = var.region
+      domain       = var.domain
+    }
+  }
+  data       = { name = "in-cluster", server = "https://kubernetes.default.svc" }
+  depends_on = [helm_release.argocd]
+}
+
+# Root Application via the argocd-apps chart: no Argo CRDs needed at plan time.
+resource "helm_release" "root" {
+  name       = "root"
+  namespace  = "argocd"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argocd-apps"
+  values     = [file("${path.module}/root-app.yaml")]
+  depends_on = [helm_release.argocd]
+}</code></pre>
+</details>
+
+<div class="card note">
+<p><strong>Note: why Terraform stops at Argo CD.</strong> Installing every add-on with Terraform's Helm provider looks simpler but ages badly:</p>
+<ul>
+<li>The provider needs a running cluster at plan time, which doesn't exist on the first create.</li>
+<li>Drift stays invisible until the next apply.</li>
+<li>Chart values and release state end up in Terraform state, and every plan gets slower.</li>
+</ul>
+<p>Argo CD reconciles continuously, shows a diff before each change, and uses the same rollback and audit model as the app. <strong>Rule:</strong> an AWS API object goes in Terraform; a Kubernetes object goes in Git + Argo CD. The EKS managed add-ons follow the rule: they are configured through the AWS EKS API, so Terraform manages them.</p>
+</div>
+
+<h2 id="argo">4. Argo CD: the gitops repo</h2>
+<pre><code>eks-gitops-demo-gitops/
+├── bootstrap/                      ← the root Application syncs this folder
+│   ├── addons.yaml                 Application → addons/       (sync-wave 0)
+│   └── apps.yaml                   Application → apps/dev/     (sync-wave 1)
+├── addons/                         one ApplicationSet per add-on
+│   ├── aws-load-balancer-controller.yaml
+│   ├── external-dns.yaml
+│   ├── external-secrets.yaml
+│   ├── metrics-server.yaml
+│   └── reloader.yaml
+├── apps/
+│   ├── dev/   demo-api.yaml  keycloak.yaml     Application: chart + version + values file
+│   └── prod/  demo-api.yaml  keycloak.yaml     (not built: dev only)
+└── values/                         Helm values, never applied as manifests
+    ├── dev/   demo-api.yaml  keycloak.yaml     image tag, hosts, issuer
+    └── prod/  …                                (not built: dev only)</code></pre>
+<ul>
+<li><strong>App of apps:</strong> the root Application's manifests are themselves Applications. After bootstrap, adding a component means adding a file. No Terraform, no <code>kubectl</code>.</li>
+<li><strong>ApplicationSet + cluster generator:</strong> each add-on file is a template. It produces an Application for every cluster Secret carrying the matching <code>enable_*</code> label and fills in values from that Secret's annotations. That is how Terraform outputs reach Helm values without hard-coding.</li>
+<li><strong>Sync policy:</strong> dev uses <code>automated</code> with <code>prune</code> (delete what was removed from Git) and <code>selfHeal</code> (undo manual edits). Prod is the same, but its files change only through approved pull requests.</li>
+<li><strong>Waves gotcha:</strong> Argo does not wait for a child Application to become healthy before starting the next wave unless the Application health check is turned back on in <code>argocd-cm</code>. Add it so apps start after the add-ons are healthy.</li>
+</ul>
+<details><summary>addons/aws-load-balancer-controller.yaml (ApplicationSet)</summary>
+<pre><code>apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: aws-load-balancer-controller, namespace: argocd }
+spec:
+  goTemplate: true
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_aws_load_balancer_controller: "true" } }
+  template:
+    metadata: { name: "aws-lbc-{{.name}}", annotations: { argocd.argoproj.io/sync-wave: "0" } }
+    spec:
+      project: default
+      source:
+        repoURL: https://aws.github.io/eks-charts
+        chart: aws-load-balancer-controller
+        targetRevision: "&lt;pinned version&gt;"
+        helm:
+          valuesObject:
+            clusterName: "{{.metadata.annotations.cluster_name}}"
+            vpcId: "{{.metadata.annotations.vpc_id}}"
+            region: "{{.metadata.annotations.aws_region}}"
+            serviceAccount: { name: aws-load-balancer-controller }   # matches the Pod Identity association
+      destination: { server: "{{.server}}", namespace: kube-system }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }</code></pre>
+</details>
+<details><summary>apps/dev/demo-api.yaml (multi-source Application)</summary>
+<pre><code>apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: { name: demo-api-dev, namespace: argocd }
+spec:
+  project: default
+  sources:
+    - repoURL: &lt;account&gt;.dkr.ecr.ap-southeast-2.amazonaws.com/charts   # Helm repo = ECR (OCI)
+      chart: demo-api
+      targetRevision: 0.1.42                                           # bumped by the CI bot PR
+      helm:
+        valueFiles: [$values/values/dev/demo-api.yaml]
+    - repoURL: https://github.com/&lt;you&gt;/eks-gitops-demo-gitops          # values come from Git
+      targetRevision: main
+      ref: values
+  destination: { server: https://kubernetes.default.svc, namespace: demo }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]</code></pre>
+</details>
+
+<h2 id="helm">5. Helm: render engine, ECR as the chart repo</h2>
+<div class="card note">
+<p><strong>Note: yes, Helm is only the render engine.</strong> The repo-server runs <code>helm template chart --values …</code>, and the application-controller diffs that YAML against the live cluster and applies it. Argo never runs <code>helm install</code>. The consequences:</p>
+<ul>
+<li>There are no Helm release records, so <code>helm list</code> is empty and <code>helm rollback</code> does nothing. <strong>Rollback = revert the commit</strong> in the gitops repo.</li>
+<li>Helm hooks are mapped to Argo phases, e.g. <code>pre-upgrade</code> → PreSync and <code>post-install</code> → PostSync.</li>
+<li>Helm's <code>lookup</code> returns nothing, so charts must not depend on it.</li>
+<li>Argo labels what it applied and can prune leftovers, which a plain <code>helm template | kubectl apply</code> cannot.</li>
+</ul>
+</div>
+<p><strong>The chart is a versioned artifact, like the image.</strong></p>
+<ul>
+<li>CI packages <code>deploy/helm/demo-api</code> once per merge (<code>0.1.N</code>) and pushes it to ECR as an OCI artifact, next to the image. No separate chart server is needed.</li>
+<li>An environment is <em>chart version + values file</em>, so prod runs the exact bytes that were tested in dev.</li>
+<li><strong>Gotcha:</strong> ECR tokens expire every 12 hours. Argo's repository credential is refreshed by an external-secrets <code>ECRAuthorizationToken</code> generator, which uses Pod Identity too.</li>
+</ul>
+<details><summary>values/dev/demo-api.yaml</summary>
+<pre><code>image:
+  repository: &lt;account&gt;.dkr.ecr.ap-southeast-2.amazonaws.com/demo-api
+  tag: 3f9c2e1                         # git SHA, written by the CI bot; ECR tags are immutable
+config:
+  oidcIssuer: https://auth.frankbluemind.com/realms/demo
+  oidcAudience: demo-api
+  env: dev
+ingress:
+  enabled: true
+  className: alb                       # handled by the AWS Load Balancer Controller
+  host: app.frankbluemind.com                # external-dns creates the record, ACM cert matched by host
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip                 # ALB → pod IPs directly (VPC CNI)
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/group.name: demo                # app + auth share one ALB</code></pre>
+</details>
+
+<h2 id="release">6. Release flow: commit to running pod</h2>
+<div class="dia">
+<svg class="sw" viewBox="0 0 1180 356" role="img" aria-labelledby="d3t">
+<title id="d3t">Swimlane of 8 release steps across Developer, GitHub Actions, artifacts, Argo CD and the cluster.</title>
+<defs><marker id="d3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="lane" x="8" y="12" width="1164" height="62" rx="8" style="fill:var(--you-soft)"/><text class="h c-you" x="20" y="48">Developer</text>
+<rect class="lane" x="8" y="80" width="1164" height="62" rx="8" style="fill:var(--ci-soft)"/><text class="h c-ci" x="20" y="116">GitHub Actions</text>
+<rect class="lane" x="8" y="148" width="1164" height="62" rx="8" style="fill:var(--art-soft)"/><text class="h c-art" x="20" y="184">ECR · gitops</text>
+<rect class="lane" x="8" y="216" width="1164" height="62" rx="8" style="fill:var(--argo-soft)"/><text class="h c-argo" x="20" y="252">Argo CD</text>
+<rect class="lane" x="8" y="284" width="1164" height="62" rx="8" style="fill:var(--ctl-soft)"/><text class="h c-ctl" x="20" y="320">Cluster</text>
+
+<rect class="you" x="140" y="21" width="120" height="44" rx="8"/><text class="t" x="150" y="40">① open PR</text><text class="s" x="150" y="56">app repo</text>
+<rect class="ci" x="268" y="89" width="120" height="44" rx="8"/><text class="t" x="278" y="108">② PR checks</text><text class="s" x="278" y="124">test · lint · scan</text>
+<rect class="you" x="396" y="21" width="120" height="44" rx="8"/><text class="t" x="406" y="40">③ review, merge</text><text class="s" x="406" y="56">to main</text>
+<rect class="ci" x="524" y="89" width="120" height="44" rx="8"/><text class="t" x="534" y="108">④ build, sign</text><text class="s" x="534" y="124">image + chart</text>
+<rect class="art" x="652" y="157" width="120" height="44" rx="8"/><text class="t" x="662" y="176">⑤ push to ECR</text><text class="s" x="662" y="192">:3f9c2e1, 0.1.42</text>
+<rect class="art" x="780" y="157" width="120" height="44" rx="8"/><text class="t" x="790" y="176">⑥ gitops PR</text><text class="s" x="790" y="192">bump dev files</text>
+<rect class="argo" x="908" y="225" width="120" height="44" rx="8"/><text class="t" x="918" y="244">⑦ sync dev</text><text class="s" x="918" y="260">template → apply</text>
+<rect class="ctl" x="1036" y="293" width="120" height="44" rx="8"/><text class="t" x="1046" y="312">⑧ rollout</text><text class="s" x="1046" y="328">probes, smoke test</text>
+
+<path class="flow" d="M260 43 H264 V111 H266" marker-end="url(#d3-a)"/>
+<path class="flow" d="M388 111 H392 V43 H394" marker-end="url(#d3-a)"/>
+<path class="flow" d="M516 43 H520 V111 H522" marker-end="url(#d3-a)"/>
+<path class="flow" d="M644 111 H648 V179 H650" marker-end="url(#d3-a)"/>
+<path class="flow" d="M772 179 H778" marker-end="url(#d3-a)"/>
+<path class="flow" d="M900 179 H904 V247 H906" marker-end="url(#d3-a)"/>
+<path class="flow" d="M1028 247 H1032 V315 H1034" marker-end="url(#d3-a)"/>
+</svg>
+</div>
+<div class="phase">
+<div class="k">② PR checks</div><div><code>go vet</code>, <code>go test -race</code>, golangci-lint, govulncheck, codegen drift check (<code>gqlgen generate</code> + <code>git diff --exit-code</code>), <code>helm lint</code> + kubeconform on the rendered chart, image build + Trivy scan. Nothing is pushed.</div>
+<div class="k">④–⑤ Build</div><div>arm64 image tagged with the git SHA, plus an SBOM and a cosign keyless signature. Chart packaged as <code>0.1.&lt;run&gt;</code>. Both are pushed to ECR with short-lived credentials from GitHub OIDC; the role may only push to these repos.</div>
+<div class="k">⑥ Promote</div><div>A bot opens a PR in the gitops repo changing two lines: <code>targetRevision</code> in <code>apps/dev/demo-api.yaml</code> and <code>image.tag</code> in <code>values/dev/demo-api.yaml</code>. Dev auto-merges. This demo builds <strong>dev only</strong>; prod would be the same change in the prod files with a required approval (explained, not shown).</div>
+<div class="k">⑦–⑧ Deploy</div><div>Argo CD notices the commit (polling, or a webhook for speed), renders, diffs and applies. Kubernetes rolls the pods; readiness probes keep traffic on the old pods until the new ones answer. A PostSync Job runs the end-to-end smoke checks.</div>
+<div class="k">Rollback</div><div>Revert the promotion commit; Argo syncs back to the previous chart and tag.</div>
+</div>
+<div class="card">
+<p><strong>Note: CI never talks to the cluster.</strong> It writes only to ECR and Git. No kubeconfig and no long-lived AWS keys are stored in GitHub. If CI is compromised, the attacker can propose a change but cannot apply it, and every change leaves a commit.</p>
+</div>
+<details><summary>.github/workflows/release.yaml (sketch)</summary>
+<pre><code>name: release
+on:
+  push:
+    branches: [main]
+permissions:
+  id-token: write          # GitHub OIDC → AWS role, no stored keys
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE_ARN }}
+          aws-region: ap-southeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - run: make test
+      - run: |
+          IMG=${{ steps.ecr.outputs.registry }}/demo-api:${GITHUB_SHA::7}
+          docker build -t "$IMG" . &amp;&amp; docker push "$IMG"
+      - run: |
+          helm package deploy/helm/demo-api --version "0.1.${GITHUB_RUN_NUMBER}" --app-version "${GITHUB_SHA::7}"
+          helm push demo-api-*.tgz oci://${{ steps.ecr.outputs.registry }}/charts
+      - run: scripts/promote.sh dev "0.1.${GITHUB_RUN_NUMBER}" "${GITHUB_SHA::7}"   # opens the gitops PR
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_BOT_TOKEN }}                            # write access to the gitops repo only</code></pre>
+</details>
+
+<h2 id="runtime">7. Runtime: a request, a login, a secret</h2>
+<div class="dia">
+<svg viewBox="0 0 1180 196" role="img" aria-labelledby="d4t">
+<title id="d4t">Browser resolves via Route 53, connects over HTTPS to the ALB, which routes by host to demo-api or Keycloak pods. Nodes pull images from ECR; external-secrets syncs from Secrets Manager.</title>
+<defs>
+<marker id="d4-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+</defs>
+<rect class="you" x="20" y="72" width="150" height="52" rx="8"/><text class="t" x="32" y="94">Browser</text><text class="s" x="32" y="111">SPA, PKCE login</text>
+<rect class="tf" x="250" y="14" width="190" height="50" rx="8"/><text class="t" x="262" y="35">Route 53</text><text class="s" x="262" y="52">records by external-dns</text>
+<rect class="ctl" x="250" y="124" width="190" height="56" rx="8"/><text class="t" x="262" y="146">ALB · HTTPS 443</text><text class="s" x="262" y="164">ACM cert · routes by host</text>
+<rect class="argo" x="540" y="30" width="210" height="50" rx="8"/><text class="t" x="552" y="51">demo-api pods</text><text class="s" x="552" y="68">app.frankbluemind.com</text>
+<rect class="argo" x="540" y="128" width="210" height="50" rx="8"/><text class="t" x="552" y="149">Keycloak pod</text><text class="s" x="552" y="166">auth.frankbluemind.com</text>
+<rect class="tf" x="860" y="30" width="200" height="50" rx="8"/><text class="t" x="872" y="51">ECR</text><text class="s" x="872" y="68">image pulled by the node</text>
+<rect class="tf" x="860" y="128" width="200" height="50" rx="8"/><text class="t" x="872" y="149">Secrets Manager</text><text class="s" x="872" y="166">→ external-secrets → Secret</text>
+
+<path class="flow dash" d="M170 88 L248 44" marker-end="url(#d4-a)"/><text class="s" x="176" y="58">① resolve</text>
+<path class="flow" d="M170 110 L248 150" marker-end="url(#d4-a)"/><text class="s" x="176" y="148">② HTTPS</text>
+<path class="flow" d="M440 140 L538 62" marker-end="url(#d4-a)"/>
+<path class="flow" d="M440 154 L538 154" marker-end="url(#d4-a)"/>
+<path class="flow dash" d="M640 80 V126" marker-end="url(#d4-a)"/><text class="s" x="648" y="108">JWKS, cached</text>
+<path class="flow dash" d="M860 55 H752" marker-end="url(#d4-a)"/>
+<path class="flow dash" d="M860 153 H752" marker-end="url(#d4-a)"/>
+</svg>
+</div>
+<ul>
+<li><strong>Ingress:</strong> one ALB, shared through <code>group.name</code>, serves both hosts. TLS ends at the ALB with the ACM certificate. <code>target-type: ip</code> sends traffic straight to pod IPs; the VPC CNI gives pods real VPC addresses.</li>
+<li><strong>Argo CD UI:</strong> public at <code>argocd.frankbluemind.com</code> on the same ALB, login only through Keycloak SSO (OIDC client <code>argocd</code> in realm <code>demo</code>; Keycloak groups map to Argo RBAC roles). The local admin account is disabled after bootstrap.</li>
+<li><strong>Grafana:</strong> public at <code>grafana.frankbluemind.com</code> on the same ALB, Keycloak SSO; the shared <code>demo.guest</code> login is Viewer. Who can do what: <a href="eks-gitops-demo-app.html#identity">Identity and access</a>.</li>
+<li><strong>OIDC issuer rule:</strong> the issuer is <code>https://auth.frankbluemind.com/realms/demo</code>, the same string for the browser and the API pod. The API fetches discovery and JWKS from that public host and caches them. Keycloak runs with <code>KC_HOSTNAME</code> set and trusts the ALB's forwarded headers.</li>
+<li><strong>Secrets:</strong> Secrets Manager → ESO → Kubernetes Secret; Git holds only the <em>reference</em>. Details in <a href="#secrets">Secrets</a>.</li>
+<li><strong>Hardening:</strong>
+  <ul>
+  <li>Pods run non-root with a read-only root filesystem and all capabilities dropped.</li>
+  <li>Every response carries a Content-Security-Policy (<code>default-src 'none'</code> for the API; the pages list exactly what they load), <code>Cross-Origin-Opener-Policy</code> and a minimal <code>Permissions-Policy</code>.</li>
+  <li>The namespace enforces the Pod Security Standard <code>restricted</code>.</li>
+  <li>NetworkPolicies (enforced by the VPC CNI) allow ALB → pods and API → Keycloak only.</li>
+  <li>The API endpoint is limited to your IP.</li>
+  </ul></li>
+<li><strong>Production differences:</strong>
+  <ul>
+  <li>Nodes in private subnets, with NAT or VPC endpoints.</li>
+  <li>Keycloak via its Operator with Postgres on RDS, or a managed IdP (Cognito, Entra ID). Swapping is a configuration change for the API.</li>
+  <li>Two or more replicas plus a PodDisruptionBudget.</li>
+  </ul></li>
+</ul>
+
+<h2 id="secrets">8. Secrets: store, delivery, rotation</h2>
+<div class="card note">
+<p><strong>KISS model:</strong> AWS Secrets Manager holds the only real copy. Git holds <em>pointers</em> (ExternalSecret objects), never values. The <strong>External Secrets Operator (ESO)</strong>, a CNCF project installed by Argo, copies each value into a Kubernetes Secret and keeps it refreshed. The app reads normal env vars or files and never knows AWS is involved. In an enterprise, swap Secrets Manager for HashiCorp Vault: pods authenticate with Vault's Kubernetes auth method, and ESO or the Vault Secrets Operator delivers.</p>
+</div>
+<div class="dia">
+<svg viewBox="0 0 1180 150" role="img" aria-labelledby="d5t">
+<title id="d5t">Rotation flow: a new version in Secrets Manager is synced by ESO into a Kubernetes Secret; mounted files update in place, while env-var consumers get a zero-downtime rolling restart from Reloader.</title>
+<defs><marker id="d5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="you" x="20" y="50" width="180" height="48" rx="8"/><text class="t" x="32" y="70">① new value</text><text class="s" x="32" y="87">secrets-seed · RDS · Lambda</text>
+<rect class="tf" x="250" y="50" width="190" height="48" rx="8"/><text class="t" x="262" y="70">② Secrets Manager</text><text class="s" x="262" y="87">AWSPENDING → AWSCURRENT</text>
+<rect class="argo" x="490" y="50" width="190" height="48" rx="8"/><text class="t" x="502" y="70">③ ESO refresh (5 min)</text><text class="s" x="502" y="87">K8s Secret updated</text>
+<rect class="ctl" x="740" y="8" width="200" height="48" rx="8"/><text class="t" x="752" y="28">④a file mount updates</text><text class="s" x="752" y="45">app re-reads · no restart</text>
+<rect class="argo" x="740" y="92" width="200" height="48" rx="8"/><text class="t" x="752" y="112">④b Reloader sees change</text><text class="s" x="752" y="129">env-var consumers</text>
+<rect class="ctl" x="980" y="92" width="180" height="48" rx="8"/><text class="t" x="992" y="112">⑤ rolling restart</text><text class="s" x="992" y="129">readiness gate · no downtime</text>
+<path class="flow" d="M200 74 H248" marker-end="url(#d5-a)"/>
+<path class="flow" d="M440 74 H488" marker-end="url(#d5-a)"/>
+<path class="flow" d="M680 68 L738 34" marker-end="url(#d5-a)"/>
+<path class="flow" d="M680 80 L738 114" marker-end="url(#d5-a)"/>
+<path class="flow" d="M940 116 H978" marker-end="url(#d5-a)"/>
+</svg>
+</div>
+<table>
+<tr><th style="width:16%">Concern</th><th>Choice</th><th>Notes</th></tr>
+<tr><td>Source of truth</td><td>AWS Secrets Manager, <code>demo/demo-api/*</code></td><td>Terraform creates the <em>empty</em> secret + IAM read access, never the value. Values enter via <code>make secrets-seed</code> (local git-ignored <code>.env</code> → <code>put-secret-value</code>), RDS (database password) or a rotation Lambda.</td></tr>
+<tr><td>Delivery</td><td>ESO → K8s Secret → pod</td><td><strong>Env var</strong> for stable values (client IDs): simple, but read once at start. <strong>File mount</strong> for rotating values: updates in place within ~1 minute (no <code>subPath</code>, or it never updates); the app must re-read it.</td></tr>
+<tr><td>Rotation</td><td>New version → ESO → Reloader</td><td>Env vars need a restart: Stakater <strong>Reloader</strong> (one annotation) triggers a rolling restart, zero downtime with 2+ replicas and readiness probes. Third-party credentials rotate in two phases (add new → switch → revoke old) so pods never hold an invalid value.</td></tr>
+<tr><td>Security / ops</td><td>Least privilege + audit</td><td>IAM scoped to <code>demo/demo-api/*</code> via Pod Identity; KMS encryption; CloudTrail logs every read; Kubernetes RBAC limits who reads Secrets; EKS envelope-encrypts Secrets with KMS. Cost: US$0.40/secret/month (SSM Parameter Store standard tier is a free alternative).</td></tr>
+</table>
+<table>
+<tr><th style="width:24%">Alternative</th><th>Why not chosen (for this demo)</th></tr>
+<tr><td>Secrets Store CSI driver (AWS / Vault provider)</td><td>Mounts files straight from the store, can skip the K8s Secret entirely. But env vars still need its sync feature, and pod start depends on the store. Good when secrets must never touch etcd.</td></tr>
+<tr><td>Vault Secrets Operator / Vault Agent</td><td>The enterprise answer: dynamic secrets (per-pod DB credentials with leases), built-in restarts. Needs Vault.</td></tr>
+<tr><td>App calls the SDK directly</td><td>Most dynamic, but couples code to one store and is harder to test.</td></tr>
+<tr><td><strong>SOPS</strong> (encrypted values in Git)</td><td><strong>Chosen for authoring only.</strong> Human-supplied secrets are edited as <code>secrets/&lt;env&gt;/*.enc.yaml</code> (keys readable, values ciphertext under a per-environment KMS key), reviewed in a PR, and synced to Secrets Manager by CI (<code>secrets-sync.yaml</code>). Decrypting in Argo was rejected: rotation would need a commit, the repo-server would hold KMS decrypt rights and cache plaintext, and a leaked key would expose Git history. Generated secrets (RDS password, client secrets) never enter Git.</td></tr>
+</table>
+<div class="card ok">
+<p><strong>Built (2026-10-16): the partner API key, delivered as env and as a hot-reloaded file. Rotated live on EKS the same day: the running pods reloaded the file 74–90 s after the merge, Reloader's roll was done at 3 min 03 s, and no request failed.</strong> <code>secrets/dev/demo-api.enc.yaml</code> (sops) → <code>secrets-sync.yaml</code> on merge → Secrets Manager <code>demo/dev/demo-api/partner-api</code> → ESO → two Kubernetes Secrets from the same source:</p>
+<ul>
+<li><code>demo-api-partner-file</code> (refresh 30s), mounted as a whole volume: <code>internal/platform/secretfile</code> re-reads it every 10s and swaps the value in place, so the running pods log <code>secret loaded … "source":"file" … "reload":true</code> <strong>without a restart</strong>.</li>
+<li><code>demo-api-partner-env</code> (refresh 3m) feeds <code>PARTNER_API_KEY</code>; only this Secret is in the Reloader annotation, so Reloader rolls the pods and the new ones log <code>"source":"env"</code> with the new fingerprint.</li>
+</ul>
+<p>Only fingerprints (first 8 hex characters of the SHA-256) are logged or exported (<code>secret_info{name,source,fingerprint}</code>, <code>secret_reloads_total</code>); the Grafana dashboard shows each pod's fingerprint. A secrets-only merge never redeploys (<code>release.yaml</code> ignores <code>secrets/**</code>). Runbook: <code>scripts/rotate-secret-demo.sh</code> (README, which also gives the measured timings).</p>
+</div>
+<details><summary>ExternalSecret + Deployment as built (env var, file mount, Reloader)</summary>
+<pre><code># gitops charts/demo-secrets: two Secrets from the same source, refreshed at different rates
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: { name: demo-api-partner-file, namespace: demo }
+spec:
+  refreshInterval: 30s
+  secretStoreRef: { kind: ClusterSecretStore, name: aws-secrets-manager }
+  target: { name: demo-api-partner-file }        # K8s Secret created and owned by ESO
+  data:
+    - secretKey: api_key
+      remoteRef: { key: demo/dev/demo-api/partner-api, property: api_key }
+# demo-api-partner-env: the same, refreshInterval 3m
+---
+# demo-api Deployment (excerpt, rendered from the Helm chart, values partnerKey.*)
+metadata:
+  annotations:
+    secret.reloader.stakater.com/reload: "demo-api-db,demo-api-payments,demo-api-partner-env"   # NOT the file Secret
+spec:
+  template:
+    spec:
+      securityContext: { fsGroup: 65532 }      # mounted files belong to the app's group
+      containers:
+        - name: api
+          env:
+            - name: PARTNER_API_KEY              # fixed until the pod is replaced
+              valueFrom: { secretKeyRef: { name: demo-api-partner-env, key: api_key } }
+            - name: PARTNER_KEY_FILE             # re-read in place
+              value: /var/run/secrets/partner/api_key
+          volumeMounts:                          # whole volume, never subPath (subPath never updates)
+            - { name: partner-key, mountPath: /var/run/secrets/partner, readOnly: true }
+      volumes:
+        - name: partner-key
+          secret: { secretName: demo-api-partner-file, defaultMode: 0440 }</code></pre>
+</details>
+
+<h2 id="state">9. State and scaling</h2>
+<div class="card note">
+<p><strong>Why:</strong> to scale, the API must hold no state in the pod. Today it keeps data in memory with 1 replica, so 2 pods would show different data. Auth is already stateless: JWTs are validated locally against cached JWKS, and the SPA holds the session. Moving data to a shared database makes every pod interchangeable.</p>
+</div>
+<table>
+<tr><th style="width:13%">Decision</th><th>Options</th><th>Choice and why</th></tr>
+<tr><td><strong>State</strong></td><td><ul>
+<li><span class="tag argo">chosen</span> RDS Postgres <code>db.t4g.micro</code>, single-AZ, private subnets (~US$0.02/h)</li>
+<li>Postgres pod in the cluster: free, but data dies with the pod; weaker story</li>
+<li>DynamoDB: serverless, but the domain is relational</li>
+<li>Aurora Serverless v2: scales to zero, but cold starts and higher cost</li>
+</ul></td><td>Managed and realistic for ~50¢/day. Terraform <code>infra/eks/rds.tf</code> creates it and destroys it with the cluster. <code>manage_master_user_password = true</code>: RDS generates and rotates the password in Secrets Manager, ESO delivers it, so it shows the full secrets flow with no custom rotation code. Migrations + seed run as an Argo <strong>PreSync Job</strong>. App change: a Postgres store (sqlc + pgx) replaces the in-memory store; local dev gets a Postgres container in docker-compose.</td></tr>
+<tr><td><strong>Autoscaling</strong></td><td><ul>
+<li><span class="tag argo">chosen</span> HPA (<code>autoscaling/v2</code>) on CPU</li>
+<li>KEDA: scales on events or Prometheus queries (requests/s, p95, queue depth), down to zero; manages an HPA for you</li>
+<li>VPA: right-sizes requests; don't combine with HPA on the same CPU metric</li>
+<li>Karpenter / Cluster Autoscaler: adds <em>nodes</em> when pods don't fit; complements HPA</li>
+</ul></td><td>Built in, needs only metrics-server (already an add-on). Min 2, max 6, 60% CPU, scale-down window 120 s for the demo. <strong>Gotchas:</strong> CPU % is relative to <code>requests</code> (chart sets 50m); readiness probes + a PodDisruptionBudget keep scaling safe; remove <code>replicas</code> from Git or set Argo <code>ignoreDifferences</code> on <code>/spec/replicas</code>, or Argo fights the HPA. <strong>Upgrade path:</strong> KEDA on requests/s or p95 once Prometheus exists (GraphQL query cost varies, so CPU is only a proxy); Karpenter if pods outgrow 2 nodes.</td></tr>
+</table>
+<p><strong>Scaling demo:</strong></p>
+<ol class="steps">
+<li>Generate load with <code>hey</code> or <code>k6</code> against <code>https://app.frankbluemind.com/graphql</code> using a real token.</li>
+<li>Watch <code>kubectl get hpa,pods -w</code>: replicas go 2 → 6; the ALB registers new pod IPs automatically (<code>target-type: ip</code>).</li>
+<li>Run the same query repeatedly: identical results from every pod, proving shared state.</li>
+<li>Stop the load: after the cool-down it scales back to 2.</li>
+</ol>
+<p class="small"><strong>Connection sizing:</strong> 6 pods × pool of 10 = 60 connections, under <code>t4g.micro</code>'s ~80 <code>max_connections</code>. Beyond that, add RDS Proxy. 6 small pods fit easily on 2 × t4g.large, so node scaling isn't needed for the demo.</p>
+<details><summary>hpa.yaml + Argo ignoreDifferences</summary>
+<pre><code>apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: demo-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: demo-api }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }     # default 300 s; shortened for the demo
+---
+# in apps/dev/demo-api.yaml (Argo Application)
+spec:
+  ignoreDifferences:
+    - { group: apps, kind: Deployment, jsonPointers: [/spec/replicas] }</code></pre>
+</details>
+<p><strong>Acceptance checks (pass/fail, written before the build):</strong></p>
+<ul class="checks">
+<li>A load test scales <code>demo-api</code> from 2 to 6 pods, and back to 2 after the load stops.</li>
+<li>The same query returns identical data from every pod.</li>
+<li>Rotating <code>demo/demo-api/partner-api</code> updates the K8s Secret within the refresh interval, and Reloader rolls the pods with no failed requests.</li>
+<li>An RDS password rotation is picked up by the app with no manual step.</li>
+</ul>
+
+<h2 id="ready">10. Account readiness and cost</h2>
+<table>
+<tr><th>Check</th><th>Status</th></tr>
+<tr><td>Root MFA · budget alert</td><td>Done (alert at US$20/month). <strong>Open:</strong> raise it to ~US$60/month before the build.</td></tr>
+<tr><td>vCPU quota</td><td>16 On-Demand, 32 Spot. The demo uses 4 (2 × t4g.large); scaling to 3 nodes uses 6.</td></tr>
+<tr><td>Tooling</td><td>terraform, helm, eksctl, kind, kubectl installed. Upgrade kubectl to within one minor version of the cluster.</td></tr>
+<tr><td><strong>Open</strong></td><td>Stop using root for the CLI: create an IAM Identity Center admin and run Terraform as that.</td></tr>
+<tr><td>Domain <code>eksgitops.click</code></td><td><strong>Active</strong> (registered 2026-10-16 via the Route 53 Domains CLI; US$3/year, auto-renew, privacy protection on, expires 2027-10-16). Hosted zone created automatically; registrar nameservers match it. <strong>Open:</strong> click the contact-email verification link (by ~2026-10-31) and wait for the <code>.click</code> registry to publish the delegation. Until DNS is live, <code>kubectl port-forward</code> still works: <code>localhost</code> counts as a secure context for the PKCE login.</td></tr>
+</table>
+<p class="small">Approximate running cost: control plane US$0.10/h + 2 × t4g.large + ALB + RDS <code>db.t4g.micro</code> (~US$0.5/day) ≈ US$5.5–8.5/day; Grafana is one small in-cluster pod. The cluster layer is destroyed between demos; a 4-hour session ≈ US$1–1.5. The bootstrap layer costs cents.</p>
+
+<h2 id="decisions">11. Decisions</h2>
+<table>
+<tr><th style="width:13%">Decision</th><th>Context</th><th>Options</th><th>Choice and why</th><th style="width:20%">Revisit when</th></tr>
+<tr><td><strong>Ingress</strong></td><td>Something must route HTTPS traffic to <code>demo-api</code> and Keycloak.
+<p class="small"><strong>Naming:</strong> "ALB Ingress Controller" is the <em>old</em> name (v1, <code>kubernetes-sigs/aws-alb-ingress-controller</code>). Since its renaming around 2020 it is the <strong>AWS Load Balancer Controller</strong> (v2+), which also provisions NLBs for <code>Service</code> type LoadBalancer.</p></td>
+<td><ul>
+<li><span class="tag argo">chosen</span> ALB via the AWS Load Balancer Controller (Ingress)</li>
+<li>Gateway API with an in-cluster Envoy gateway (kgateway, Envoy Gateway, Istio) behind an NLB</li>
+<li>ALB in front of an in-cluster gateway</li>
+</ul></td>
+<td><strong>Is ALB current best practice?</strong> It is the most common AWS-native default: AWS runs the data plane, ACM and WAF are built in, and it is the least to operate. For routing APIs, the industry is moving to Gateway API: ingress-nginx is retired, and kgateway (formerly Gloo, a CNCF project built on Envoy) adds API-gateway features such as rate limits, JWT validation and weighted canaries. A common enterprise pattern puts an NLB or ALB in front of an in-cluster Gateway API gateway. The LB controller also supports Gateway API now (<code>HTTPRoute</code> → ALB); it is recent, so verify maturity first.<br><strong>For this demo: ALB.</strong> No proxy pods, so it fits on 2 nodes.</td>
+<td>We need rate limiting, JWT validation at the edge, weighted canaries, or portability across clouds.</td></tr>
+<tr><td><strong>HTTPS</strong></td><td>The PKCE login needs a secure context (<code>crypto.subtle</code>), and Keycloak's default <code>sslRequired=external</code> refuses plain HTTP. No CA issues certificates for <code>*.elb.amazonaws.com</code>.</td>
+<td><ul>
+<li><span class="tag argo">chosen</span> Real domain + ACM certificate on the ALB</li>
+<li>CloudFront default <code>*.cloudfront.net</code>: no domain, but needs a Terraform-owned ALB + <code>TargetGroupBinding</code>, and the URL changes on every rebuild</li>
+<li>Self-signed certificate on the ALB: browser warning, and the API pod must trust the CA</li>
+<li>Plain HTTP: breaks PKCE and Keycloak login</li>
+</ul></td>
+<td>Domain <code>eksgitops.click</code> at US$3/year: the fewest moving parts, stable hostnames, a free ACM certificate (bootstrap layer, auto-renews), and the same shape as production. <code>kubectl port-forward</code> remains the zero-cost local option.
+<p class="small"><strong>Where TLS ends:</strong> at the ALB; ACM certificates cannot be mounted into pods. ALB → pod is HTTP inside the VPC. For end-to-end TLS in production, use HTTPS to the pods or a service mesh. If TLS ended in-cluster instead (e.g. a Gateway API gateway such as kgateway), use cert-manager + Let's Encrypt, with DNS-01 validation for the wildcard.</p></td>
+<td>The domain lapses, or a no-domain throwaway environment is needed (use CloudFront then).</td></tr>
+</table>
+
+<h2 id="ideas">12. Ideas (not in the first build)</h2>
+<ul>
+<li><strong>Security scanning, enterprise-grade:</strong> PR gates for code (golangci-lint + gosec, govulncheck, CodeQL), secrets (gitleaks), IaC (tflint + Trivy config or Checkov on <code>infra/</code>), Kubernetes (kubeconform + Kyverno/conftest policies on the rendered chart) and images (Trivy, SBOM, cosign signature). In-cluster: Kyverno admission that verifies image signatures and enforces restricted pods, NetworkPolicies, GuardDuty EKS protection, kube-bench CIS checks, Security Hub.</li>
+<li><strong>Spot nodes:</strong> <code>capacity_type = "SPOT"</code> with 2+ instance types (t4g.large, m7g.large) for about 60–70% off node cost. Managed node groups drain a Spot node automatically when AWS reclaims it. Keep On-Demand during a live demo.</li>
+<li><strong>Karpenter</strong> for node autoscaling, and <strong>KEDA</strong> on requests/s (see the <a href="#state">autoscaling decision</a>): Terraform creates Karpenter's IAM role and interruption queue, Argo installs the charts.</li>
+<li><strong>EKS Auto Mode</strong> (AWS runs CNI, DNS, the load balancer controller, storage and Karpenter) and <strong>AWS-managed Argo CD</strong> (EKS Capabilities). Less to operate, for a fee; self-managed is chosen here to show every moving part.</li>
+<li><strong>Argo Rollouts</strong> canary releases. Observability is now part of the plan: see <a href="eks-gitops-demo-app.html#otel">App &amp; observability</a>.</li>
+</ul>
+</main>
+</body></html>

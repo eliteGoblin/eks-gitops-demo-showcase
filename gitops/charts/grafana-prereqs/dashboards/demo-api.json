@@ -1,0 +1,143 @@
+{
+  "uid": "demo-api-red",
+  "title": "demo-api: RED + scaling",
+  "description": "Request rate, errors and duration per GraphQL operation, next to HPA replicas and pod CPU.",
+  "tags": ["demo-api", "red", "scaling"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Requests / s",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(rate(graphql_operations_total{job=\"demo-api\"}[$__rate_interval])) or vector(0)" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Error rate",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.01 }, { "color": "red", "value": 0.05 }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "(sum(rate(graphql_operations_total{job=\"demo-api\",outcome=\"error\"}[$__rate_interval])) / (sum(rate(graphql_operations_total{job=\"demo-api\"}[$__rate_interval])) > 0)) or vector(0)" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "p95 latency",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "noValue": "no traffic", "unit": "s", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.3 }, { "color": "red", "value": 0.5 }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(graphql_operation_duration_seconds_bucket{job=\"demo-api\"}[$__rate_interval]))) > 0" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "demo-api pods (HPA)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "noValue": "no HPA yet", "unit": "none", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "max(kube_horizontalpodautoscaler_status_current_replicas{namespace=\"demo\",horizontalpodautoscaler=\"demo-api\"})" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Rate: GraphQL operations / s",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "noValue": "no traffic", "unit": "reqps", "custom": { "fillOpacity": 10, "lineWidth": 1, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (operation) (rate(graphql_operations_total{job=\"demo-api\"}[$__rate_interval]))", "legendFormat": "{{operation}}" }]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Errors / s by code",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "noValue": "no errors", "unit": "reqps", "custom": { "fillOpacity": 20, "lineWidth": 1 }, "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome, error_code) (rate(graphql_operations_total{job=\"demo-api\",outcome!=\"ok\"}[$__rate_interval]))", "legendFormat": "graphql {{outcome}} {{error_code}}" },
+        { "refId": "B", "expr": "sum by (code) (rate(auth_failures_total{job=\"demo-api\"}[$__rate_interval]))", "legendFormat": "auth {{code}}" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Duration: p50 / p95 / p99 per operation",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "noValue": "no traffic", "unit": "s", "custom": { "lineWidth": 1 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(graphql_operation_duration_seconds_bucket{job=\"demo-api\"}[$__rate_interval]))) > 0", "legendFormat": "p50 {{operation}}" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(graphql_operation_duration_seconds_bucket{job=\"demo-api\"}[$__rate_interval]))) > 0", "legendFormat": "p95 {{operation}}" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(graphql_operation_duration_seconds_bucket{job=\"demo-api\"}[$__rate_interval]))) > 0", "legendFormat": "p99 all" }
+      ]
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "HTTP requests / s by status (otelhttp)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "noValue": "no traffic", "unit": "reqps", "custom": { "fillOpacity": 10, "lineWidth": 1, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{job=\"demo-api\"}[$__rate_interval]))", "legendFormat": "{{http_route}} {{http_response_status_code}}" }]
+    },
+    {
+      "id": 20, "type": "timeseries", "title": "Scaling: HPA replicas vs max",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "lineWidth": 2, "lineInterpolation": "stepAfter" } }, "overrides": [{ "matcher": { "id": "byName", "options": "max" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }] }] },
+      "targets": [
+        { "refId": "A", "expr": "max(kube_horizontalpodautoscaler_status_current_replicas{namespace=\"demo\",horizontalpodautoscaler=\"demo-api\"})", "legendFormat": "current" },
+        { "refId": "B", "expr": "max(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"demo\",horizontalpodautoscaler=\"demo-api\"})", "legendFormat": "desired" },
+        { "refId": "C", "expr": "max(kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"demo\",horizontalpodautoscaler=\"demo-api\"})", "legendFormat": "max" }
+      ]
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "Scaling: CPU per demo-api pod (cores)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 2, "custom": { "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"demo\",container=\"api\"}[$__rate_interval]))", "legendFormat": "{{pod}}" }]
+    },
+    {
+      "id": 22, "type": "timeseries", "title": "Database pool (per pod)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "lineWidth": 1 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (k8s_pod_name) (db_pool_acquired_conns{job=\"demo-api\"})", "legendFormat": "in use {{k8s_pod_name}}" },
+        { "refId": "B", "expr": "max(db_pool_max_conns{job=\"demo-api\"})", "legendFormat": "max per pod" }
+      ]
+    },
+    {
+      "id": 30, "type": "table", "title": "Secrets: partner key fingerprint per pod",
+      "description": "Which version of the partner API key each pod holds (fingerprint = first 8 hex of its SHA-256; the key itself is never exported). source=file reloads in place; source=env changes only when Reloader replaces the pod.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "pod", "desc": false }] },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "Value": true }, "indexByName": { "k8s_pod_name": 0, "source": 1, "fingerprint": 2 }, "renameByName": { "k8s_pod_name": "pod" } } }
+      ],
+      "targets": [
+        { "refId": "A", "instant": true, "range": false, "format": "table", "expr": "max by (k8s_pod_name, source, fingerprint) (secret_info{job=\"demo-api\",name=\"partner-api-key\"} and (time() - timestamp(secret_info{job=\"demo-api\",name=\"partner-api-key\"}) < 60))" }
+      ]
+    },
+    {
+      "id": 31, "type": "timeseries", "title": "Secrets: partner key loads (per pod, by delivery)",
+      "description": "secret_reloads_total: the first load at start-up plus every in-place file reload.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "amp" },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "lineWidth": 1 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (k8s_pod_name, source) (secret_reloads_total{job=\"demo-api\",name=\"partner-api-key\"})", "legendFormat": "{{k8s_pod_name}} {{source}}" }
+      ]
+    }
+  ]
+}

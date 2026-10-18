@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKS GitOps Demo: App and Observability</title>
+<meta name="description" content="App domain, identity and access, GraphQL feature showcase, OpenTelemetry observability with self-hosted Grafana over AWS-managed backends, public-demo guardrails and the phased build plan.">
+<link rel="stylesheet" href="style.css">
+<style>
+:root{
+  --tf:#7048e8; --tf-soft:#efeafe; --argo:#e8590c; --argo-soft:#fff0e4; --ci:#0c8a5f; --ci-soft:#e0f5ec;
+  --ctl:#d6336c; --ctl-soft:#fdebf1; --art:#1c7ed6; --art-soft:#e6f1fc; --you:#5b6470; --you-soft:#eef1f4;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}}
+:root[data-theme="dark"]{
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}
+.dia{overflow-x:auto;margin:14px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}
+.dia svg{display:block;min-width:960px;width:100%;height:auto}
+.dia text{font-family:var(--font);fill:var(--ink)}
+.dia .h{font-size:14px;font-weight:700}
+.dia .t{font-size:12.5px;font-weight:600}
+.dia .s{font-size:11px;fill:var(--muted)}
+.dia .sw .t{font-size:11.5px}
+.dia .frame{fill:none;stroke:var(--line);stroke-width:1.5}
+.dia .vpc{fill:none;stroke:var(--tf);stroke-width:1.5;stroke-dasharray:7 5}
+.dia .cluster{fill:var(--tf-soft);fill-opacity:.35;stroke:var(--tf);stroke-width:2}
+.dia .col{fill:var(--surface);fill-opacity:.7;stroke-width:1.5;stroke-dasharray:5 4}
+.dia rect.tf{fill:var(--tf-soft);stroke:var(--tf)} .dia rect.argo{fill:var(--argo-soft);stroke:var(--argo)}
+.dia rect.ci{fill:var(--ci-soft);stroke:var(--ci)} .dia rect.ctl{fill:var(--ctl-soft);stroke:var(--ctl)}
+.dia rect.art{fill:var(--art-soft);stroke:var(--art)} .dia rect.you{fill:var(--you-soft);stroke:var(--you)}
+.dia rect.tf,.dia rect.argo,.dia rect.ci,.dia rect.ctl,.dia rect.art,.dia rect.you{stroke-width:1.5}
+.dia .lane{stroke:none;fill-opacity:.55}
+.dia .c-tf{fill:var(--tf)} .dia .c-argo{fill:var(--argo)} .dia .c-ci{fill:var(--ci)} .dia .c-ctl{fill:var(--ctl)} .dia .c-art{fill:var(--art)} .dia .c-you{fill:var(--you)}
+.dia .flow{fill:none;stroke:var(--muted);stroke-width:1.6}
+.dia .flow-ctl{fill:none;stroke:var(--ctl);stroke-width:1.8;stroke-dasharray:5 4}
+.dia .flow-argo{fill:none;stroke:var(--argo);stroke-width:1.8}
+.dia .dash{stroke-dasharray:5 4}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 4px;font-size:13.5px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:4px;border:2px solid}
+.legend .tf{background:var(--tf-soft);border-color:var(--tf)} .legend .argo{background:var(--argo-soft);border-color:var(--argo)}
+.legend .ci{background:var(--ci-soft);border-color:var(--ci)} .legend .ctl{background:var(--ctl-soft);border-color:var(--ctl)}
+.legend .art{background:var(--art-soft);border-color:var(--art)} .legend .you{background:var(--you-soft);border-color:var(--you)}
+td .tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.tag.tf{background:var(--tf-soft);color:var(--tf)} .tag.argo{background:var(--argo-soft);color:var(--argo)}
+.tag.ci{background:var(--ci-soft);color:var(--ci)} .tag.ctl{background:var(--ctl-soft);color:var(--ctl)} .tag.you{background:var(--you-soft);color:var(--you)}
+ul.checks{list-style:none;padding-left:4px} ul.checks li::before{content:"☐ ";color:var(--accent);font-weight:700}
+details{margin:8px 0 14px}
+summary{cursor:pointer;font-weight:600;color:var(--accent)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+ol.steps li{margin:4px 0}
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><span class="brand">eks-gitops-demo</span>
+<a href="eks-gitops-demo.html">← Platform</a><a href="eks-gitops-demo-code.html">Code architecture →</a><a href="#decided">Decided</a><a href="#domain">App domain</a><a href="#graphql">GraphQL</a><a href="#identity">Identity</a><a href="#otel">Observability</a><a href="#guardrails">Guardrails</a><a href="#plan">Phased plan</a>
+</div></header>
+<main>
+<h1>App, identity and observability</h1>
+<p class="sub">Companion to the <a href="eks-gitops-demo.html">platform page</a> and the <a href="eks-gitops-demo-code.html">code architecture page</a>: what the app does, who can log in to what, which GraphQL features it shows, how it is observed with OpenTelemetry, and the build order. Prepared 2026-10-16. Phase 1 is built (the API, service kit, playground, CI and bootstrap infrastructure); later phases are design.</p>
+
+<h2 id="decided" style="border-top:none;margin-top:24px;padding-top:0">Decisions recorded 2026-10-16</h2>
+<div class="card note">
+<ul>
+<li><strong>End state:</strong> a public demo of three things: the app (login + GraphQL calls), Argo CD, and the OpenTelemetry dashboards.</li>
+<li><strong>Repo:</strong> the app lives in <code>eks-gitops-demo</code>, structured as <a href="eks-gitops-demo-code.html#arch">clean architecture</a> on a <a href="eks-gitops-demo-code.html#kit">shared service kit</a>.</li>
+<li><strong>Environments:</strong> dev only. Promotion to prod is explained, not shown.</li>
+<li><strong>Request flow:</strong> a participant raises a <strong>support request</strong> against their plan; agency staff approve or reject it; approval reserves budget as a service booking; the provider later claims against the booking. Nobody may decide their own request.</li>
+<li><strong>Public hosts</strong> on one ALB and the wildcard certificate, all signing in through Keycloak at <code>auth.frankbluemind.com</code>: <code>app.</code>, <code>argocd.</code> and <code>grafana.frankbluemind.com</code>. The Keycloak admin console is not routed publicly.</li>
+<li><strong>Identities:</strong> <code>zhaolin.sun</code> (admin of Argo CD and Grafana, and a participant who raises requests), <code>case.officer</code> (staff approver), <code>demo.guest</code> (shared read-only login for reviewers).</li>
+<li><strong>Passwords:</strong> random per user but memorable (word-word-number-symbol), kept in Secrets Manager and put into the realm at import time; never in Git (see <a href="#identity">Identity</a>).</li>
+<li><strong>Keycloak</strong> runs in production mode with its own database on RDS, so users persist; RDS therefore moves to phase 2.</li>
+<li><strong>Dashboards:</strong> self-hosted Grafana as the UI over AWS-managed backends (X-Ray, Managed Prometheus, CloudWatch Logs).</li>
+<li><strong>Terraform:</strong> applied from the laptop for the initial build; the IaC pipeline (plan on PR, apply on merge via GitHub OIDC) was added on 2026-10-16 and owns changes under <code>infra/</code> from then on.</li>
+<li><strong>Prerequisites:</strong> an IAM Identity Center admin for running Terraform (not root), and the domain's contact-email verification.</li>
+</ul>
+</div>
+
+<h2 id="domain">1. App domain: a support-funding service</h2>
+<p>A <strong>participant</strong> receives a <strong>plan</strong> with a <strong>budget per support category</strong>. The participant (or a <strong>nominee</strong> acting for them) raises a <strong>support request</strong>: category, description, estimated amount and optionally a preferred provider. <strong>Agency staff</strong> approve or reject it with a reason; approval reserves part of the budget as a <strong>service booking</strong> for a <strong>provider</strong>. The provider delivers the service and <strong>claims payment</strong> against the booking. The plan's <strong>management type</strong> decides who may claim. A claim is a payment request against a budget, not an insurance claim.</p>
+<div class="dia">
+<svg viewBox="0 0 1180 310" role="img" aria-labelledby="e1t">
+<title id="e1t">Entities: a participant has plans and raises support requests against a plan; a nominee acts for a participant; a plan has budgets per category and claims; agency staff decide support requests and approve claims; a provider holds service bookings that reserve budget and submits claims.</title>
+<defs><marker id="e1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="you" x="30" y="110" width="180" height="60" rx="8"/><text class="t" x="42" y="134">Participant</text><text class="s" x="42" y="152">scheme number · DOB masked</text>
+<rect class="you" x="30" y="230" width="180" height="60" rx="8"/><text class="t" x="42" y="254">Nominee</text><text class="s" x="42" y="272">acts for a participant</text>
+<rect class="art" x="290" y="110" width="180" height="60" rx="8"/><text class="t" x="302" y="134">Plan</text><text class="s" x="302" y="152">status · dates · management</text>
+<rect class="art" x="290" y="230" width="180" height="60" rx="8"/><text class="t" x="302" y="254">SupportRequest</text><text class="s" x="302" y="272">category · estimate · status</text>
+<rect class="art" x="540" y="30" width="190" height="60" rx="8"/><text class="t" x="552" y="54">SupportBudget</text><text class="s" x="552" y="72">per category: allocated, spent</text>
+<rect class="art" x="540" y="170" width="190" height="60" rx="8"/><text class="t" x="552" y="194">Claim</text><text class="s" x="552" y="212">amount · status · retry-safe</text>
+<rect class="art" x="800" y="30" width="170" height="60" rx="8"/><text class="t" x="812" y="54">ServiceBooking</text><text class="s" x="812" y="72">reserves part of a budget</text>
+<rect class="you" x="800" y="230" width="170" height="60" rx="8"/><text class="t" x="812" y="254">Agency staff</text><text class="s" x="812" y="272">decides requests, claims</text>
+<rect class="you" x="1000" y="110" width="160" height="60" rx="8"/><text class="t" x="1012" y="134">Provider</text><text class="s" x="1012" y="152">delivers, then claims</text>
+
+<path class="flow" d="M210 140 H288" marker-end="url(#e1-a)"/><text class="s" x="222" y="132">has 1..n</text>
+<path class="flow" d="M120 230 V172" marker-end="url(#e1-a)"/><text class="s" x="128" y="206">acts for</text>
+<path class="flow" d="M210 162 H250 V258 H288" marker-end="url(#e1-a)"/><text class="s" x="256" y="214">raises</text>
+<path class="flow" d="M380 230 V172" marker-end="url(#e1-a)"/><text class="s" x="388" y="206">against</text>
+<path class="flow" d="M470 125 L538 70" marker-end="url(#e1-a)"/><text class="s" x="440" y="88">per category</text>
+<path class="flow" d="M470 155 L538 192" marker-end="url(#e1-a)"/><text class="s" x="486" y="160">claims</text>
+<path class="flow" d="M800 60 H732" marker-end="url(#e1-a)"/><text class="s" x="742" y="52">reserves</text>
+<path class="flow" d="M1000 125 L972 75" marker-end="url(#e1-a)"/><text class="s" x="992" y="96">holds</text>
+<path class="flow" d="M1000 150 L732 196" marker-end="url(#e1-a)"/><text class="s" x="880" y="160">submits</text>
+<path class="flow" d="M800 250 L732 218" marker-end="url(#e1-a)"/><text class="s" x="744" y="252">approves</text>
+<path class="flow" d="M800 280 H472" marker-end="url(#e1-a)"/><text class="s" x="600" y="298">decides (never their own)</text>
+</svg>
+</div>
+<p class="small">Grey = people and organisations (also the callers); blue = records. Approving a support request creates the service booking. Every read and write passes the relationship checks in the use cases: nominee delegation, provider booking, plan management type, and separation of duties.</p>
+
+<table>
+<tr><th>Concept</th><th>Name</th><th>Note</th></tr>
+<tr><td>Participant number</td><td><code>schemeNumber</code></td><td>Later deprecated in favour of <code>memberNumber</code> to show schema evolution</td></tr>
+<tr><td>Staff role</td><td><code>AGENCY_STAFF</code> in the GraphQL enum; <code>agency_staff</code> as the realm role in tokens</td><td></td></tr>
+<tr><td>Support categories</td><td><code>DAILY_LIVING / THERAPY / EQUIPMENT</code></td><td></td></tr>
+<tr><td>Realm, module</td><td>Realm <code>demo</code>, module <code>eks-gitops-demo</code></td><td>Issuer <code>https://auth.frankbluemind.com/realms/demo</code></td></tr>
+<tr><td>Support request</td><td><code>SupportRequest</code> with <code>SUBMITTED / APPROVED / REJECTED</code></td><td>The request → decision → booking → claim workflow</td></tr>
+<tr><td>Plan management</td><td>A management type on each plan</td><td>A real authorization rule: who may submit claims</td></tr>
+<tr><td>Service booking</td><td><code>ServiceBooking</code> as a first-class type</td><td>Created when a support request is approved</td></tr>
+</table>
+
+<h2 id="graphql">2. GraphQL showcase</h2>
+<table>
+<tr><th>Feature</th><th>Schema element</th><th>Status</th><th>Why it matters</th></tr>
+<tr><td>Custom scalars</td><td><code>Date</code>, <code>Money</code></td><td>already</td><td>Validation at the edge; no float money</td></tr>
+<tr><td>Directive-based auth</td><td><code>@auth(requires: [...])</code> on mutations</td><td>already</td><td>Coarse role gate declared in the contract</td></tr>
+<tr><td>Nested resolvers + field masking</td><td><code>dateOfBirth</code> null for providers; only booked budgets</td><td>already</td><td>Authorization on every path, not just the entry query</td></tr>
+<tr><td>Relay cursor pagination</td><td><code>ClaimConnection</code>, <code>PageInfo</code></td><td>already</td><td>Stable paging for portal and mobile lists</td></tr>
+<tr><td>Union payloads (errors as data)</td><td><code>SubmitClaimPayload = Claim | ValidationError | BudgetExceededError</code></td><td>already</td><td>Clients branch on typed outcomes, not error strings</td></tr>
+<tr><td>Workflow with a domain-rule error</td><td><code>decideSupportRequest → SupportRequest | SelfApprovalNotAllowedError | ValidationError</code></td><td><strong>built</strong></td><td>A business rule (separation of duties) reaches the client as a typed outcome</td></tr>
+<tr><td>Interfaces + global lookup</td><td><code>interface Node</code>, <code>node(id:)</code>, <code>nodes(ids:)</code> (at most 50)</td><td><strong>built</strong> (Phase 5)</td><td>Client caches (Relay, Apollo) refetch any object by id. <code>node</code> reads through the same use cases as the typed queries: an id the caller may not read is <code>null</code>, exactly like <code>participant(id:)</code>, and masked fields stay masked</td></tr>
+<tr><td>Shared interface across types</td><td><code>interface Party { id displayName }</code> (Participant, Provider)</td><td><strong>built</strong> (Phase 5)</td><td>Polymorphic queries with fragments</td></tr>
+<tr><td>Union search</td><td><code>search(term, first) → [Participant | Provider | Claim]</code></td><td><strong>built</strong> (Phase 5)</td><td>One endpoint, many result types, still authorized per item: each type is searched inside the caller's scope. The term (2–100 characters) is a bind parameter and <code>%</code>/<code>_</code> match literally; at most 50 results</td></tr>
+<tr><td>Filter and sort inputs</td><td><code>claims(filter: ClaimFilter, orderBy: ClaimOrder)</code>, also on <code>Plan.claims</code></td><td><strong>built</strong> (Phase 5)</td><td>Typed query options instead of ad-hoc arguments. Keyset pagination in every order (submitted time or amount, ascending or descending, id as tie-break); the cursor records its order, and a cursor from another order is <code>BAD_USER_INPUT</code></td></tr>
+<tr><td>Error interface</td><td><code>interface UserError { message path }</code> on <code>ValidationError</code>, <code>BudgetExceededError</code>, <code>SelfApprovalNotAllowedError</code>, <code>IdempotencyKeyReusedError</code></td><td><strong>built</strong> (Phase 5)</td><td>Generic error rendering in clients; the payload unions keep their members</td></tr>
+<tr><td>Idempotent mutation</td><td><code>submitClaim(input: { idempotencyKey })</code></td><td><strong>built</strong> (Phase 5)</td><td>A client retry can never pay twice: the same key and input return the first claim; the same key with a different input is <code>IdempotencyKeyReusedError</code>. Keys are per user (primary key <code>(subject, key)</code>, stored in the claim's transaction) and kept; concurrent retries store one claim</td></tr>
+<tr><td>DataLoader batching</td><td>claims → provider, plan → budgets</td><td><strong>built</strong></td><td>Removes the N+1 query problem; visible in traces</td></tr>
+<tr><td>Subscriptions</td><td><code>supportRequestStatusChanged(planId)</code>, <code>claimStatusChanged(planId)</code> over WebSocket (graphql-transport-ws), fanned out with Postgres <code>LISTEN/NOTIFY</code></td><td><strong>built</strong> (Phase 6)</td><td>The requester sees the decision live, whichever pod handled it; the ALB carries WebSockets. The bearer token goes in <code>connection_init</code> (invalid: close 4401; client not allowed: 4403); subscribing needs read access to the plan, and every update is re-read with the subscriber's access. At most 5 subscriptions per connection, a ping every 25 s (the ALB drops connections idle for 60 s), and the connection ends when its access token expires. Only subscriptions go over the socket; queries and mutations stay on POST, where the rate and time limits apply.</td></tr>
+<tr><td>Schema evolution</td><td><code>Participant.schemeNumber @deprecated(reason: "Use memberNumber; removal after 2026-12-31")</code></td><td><strong>built</strong> (Phase 5)</td><td>Versionless API lifecycle: add, deprecate, measure use (<code>graphql_deprecated_field_usage_total{field}</code>), remove. A CI check flags a pull request that breaks the schema unless it is labelled <code>breaking-change-approved</code>; advisory, since the free plan cannot require checks on a private repository (<code>docs/schema-changelog.md</code>)</td></tr>
+<tr><td>Hardening</td><td>Depth and complexity limits; persisted queries: APQ (<code>extensions.persistedQuery.sha256Hash</code>) in the demo, a trusted-documents allowlist (<code>PERSISTED_QUERIES=allowlist</code>, <code>persisted/queries.json</code>) for first-party clients; introspection off outside dev; a strict Content-Security-Policy on every page</td><td><strong>built</strong> (Phase 7)</td><td>Protects a public GraphQL endpoint from expensive or arbitrary queries; mobile clients send small hashes; pages run no inline code. Checked in Chrome: PKCE login and a GraphiQL query with 0 CSP violations</td></tr>
+<tr><td>Integration adapter</td><td><code>approveClaim</code> pays the claim through <a href="eks-gitops-demo-code.html#services">payments-svc</a> with demo-api's own client-credentials token (<code>demo-api-svc</code>), the claim id as idempotency key; <code>Claim.payment { status ref }</code> is <code>PENDING</code>, <code>PAID</code> or <code>FAILED</code></td><td><strong>built</strong> (Phase 6)</td><td>The API as a consistent integration layer over back-end systems. The approval commits first; a failed payment leaves it standing (<code>FAILED</code>, audited as <code>payment_failed</code>). Two 2 s attempts with capped backoff (honouring <code>Retry-After</code>), one token refresh on a 401, and a circuit breaker that only unavailability can open. A replayed approval is refused before any payment, and concurrent approvals pay once (a conditional status update decides the winner).</td></tr>
+</table>
+<details open><summary>Try the showcase (in the playground)</summary>
+<pre><code># any object by id, through a shared interface
+{ node(id: "P1") { __typename id ... on Party { displayName } ... on Participant { memberNumber } } }
+{ nodes(ids: ["PR1", "PL1", "C1"]) { __typename id } }
+
+# one search, three result types, each inside what the caller may read
+{ search(term: "sun") { __typename ... on Party { id displayName } ... on Claim { id status amount } } }
+
+# filtered and ordered keyset pagination: pass pageInfo.endCursor as after:
+{ claims(first: 2, filter: { status: SUBMITTED }, orderBy: { field: AMOUNT, direction: DESC }) {
+    totalCount edges { node { id amount submittedAt } } pageInfo { hasNextPage endCursor } } }
+
+# an idempotent retry (as riley.provider): run it twice, get the same claim id
+mutation { submitClaim(input: { planId: "PL1", category: DAILY_LIVING, amount: "12.00",
+    serviceDate: "2026-04-20", idempotencyKey: "try-1" }) {
+  __typename ... on Claim { id } ... on UserError { message path } } }</code></pre>
+</details>
+<details><summary>SDL sketch of the new types (the design; the built schema is <code>internal/adapter/graphql/schema/schema.graphqls</code>)</summary>
+<pre><code>interface Node { id: ID! }
+interface Party { id: ID!  displayName: String! }
+interface UserError { message: String!  path: [String!] }
+
+enum PlanManagement { AGENCY PLAN_MANAGED SELF }
+enum SupportCategory { DAILY_LIVING THERAPY EQUIPMENT }
+enum SupportRequestStatus { SUBMITTED APPROVED REJECTED }
+enum OrderDirection { ASC DESC }
+enum ClaimOrderField { SUBMITTED_AT AMOUNT }
+
+type Participant implements Node &amp; Party {
+  id: ID!
+  displayName: String!
+  memberNumber: String!
+  schemeNumber: String! @deprecated(reason: "Use memberNumber; removal after 2026-12-31")
+  dateOfBirth: Date            # null unless the caller may see it
+  plans: [Plan!]!
+}
+type Provider implements Node &amp; Party { id: ID!  displayName: String!  bookings: [ServiceBooking!]! }
+type ServiceBooking implements Node {
+  id: ID!  plan: Plan!  provider: Provider!  category: SupportCategory!  reserved: Money!  remaining: Money!
+}
+type SupportRequest implements Node {
+  id: ID!  plan: Plan!  category: SupportCategory!  description: String!
+  estimatedAmount: Money!  preferredProvider: Provider
+  status: SupportRequestStatus!  decisionReason: String
+  booking: ServiceBooking      # set when approved
+}
+
+union SearchResult = Participant | Provider | Claim
+
+input ClaimFilter {           # submittedAfter is inclusive, submittedBefore exclusive (RFC 3339)
+  status: ClaimStatus  category: SupportCategory  providerId: ID  submittedAfter: String  submittedBefore: String
+}
+input ClaimOrder { field: ClaimOrderField! = SUBMITTED_AT  direction: OrderDirection! = ASC }
+input SubmitSupportRequestInput {
+  planId: ID!  category: SupportCategory!  description: String!  estimatedAmount: Money!  preferredProviderId: ID
+}
+input DecideSupportRequestInput { id: ID!  approve: Boolean!  reason: String!  providerId: ID }
+input SubmitClaimInput {
+  bookingId: ID!  amount: Money!  serviceDate: Date!
+  idempotencyKey: String       # optional; same key + same input → the same Claim, never a second payment
+}
+
+type ValidationError implements UserError { field: String!  message: String!  path: [String!] }
+type BudgetExceededError implements UserError { message: String!  path: [String!]  remaining: Money!  requested: Money! }
+type SelfApprovalNotAllowedError implements UserError { message: String!  path: [String!] }
+type IdempotencyKeyReusedError implements UserError { message: String!  path: [String!] }
+
+union SubmitSupportRequestPayload = SupportRequest | ValidationError | BudgetExceededError
+union DecideSupportRequestPayload = SupportRequest | SelfApprovalNotAllowedError | ValidationError
+union SubmitClaimPayload = Claim | ValidationError | BudgetExceededError | IdempotencyKeyReusedError
+
+type Query {
+  node(id: ID!): Node
+  nodes(ids: [ID!]!): [Node]!
+  search(term: String!, first: Int = 10): [SearchResult!]!
+  claims(filter: ClaimFilter, orderBy: ClaimOrder, first: Int = 20, after: String): ClaimConnection!
+}
+type Mutation {
+  submitSupportRequest(input: SubmitSupportRequestInput!): SubmitSupportRequestPayload! @auth(requires: [PARTICIPANT, NOMINEE])
+  decideSupportRequest(input: DecideSupportRequestInput!): DecideSupportRequestPayload! @auth(requires: [AGENCY_STAFF])
+  submitClaim(input: SubmitClaimInput!): SubmitClaimPayload! @auth(requires: [PROVIDER])
+}
+type Subscription {
+  supportRequestStatusChanged(planId: ID!): SupportRequest!
+  claimStatusChanged(planId: ID!): Claim!
+}</code></pre>
+<p class="small"><code>Plan</code>, <code>Claim</code> and the connection types also implement <code>Node</code>; existing types are unchanged apart from the renames. The self-approval check is a domain rule (see the <a href="eks-gitops-demo-code.html#arch">code page</a>); the <code>@auth</code> directive only gates the role.</p>
+</details>
+
+<h2 id="identity">3. Identity and access</h2>
+<table>
+<tr><th>Public host (one ALB, <code>*.eksgitops.click</code> cert)</th><th>Serves</th><th>Login</th></tr>
+<tr><td><code>app.frankbluemind.com</code></td><td>SPA + <code>/graphql</code> (demo-api)</td><td>Keycloak, Authorization Code + PKCE</td></tr>
+<tr><td><code>argocd.frankbluemind.com</code></td><td>Argo CD UI</td><td>Keycloak SSO (OIDC client <code>argocd</code>); local admin disabled</td></tr>
+<tr><td><code>grafana.frankbluemind.com</code></td><td>Grafana dashboards</td><td>Keycloak SSO (generic OAuth); optional public dashboard link</td></tr>
+<tr><td><code>auth.frankbluemind.com</code></td><td>Keycloak realm <code>demo</code>: only <code>/realms/*</code> and <code>/resources/*</code></td><td>The admin console is not routed publicly</td></tr>
+</table>
+<ul>
+<li><strong>Keycloak in production mode</strong> (<code>start</code>, not <code>start-dev</code>) with <code>KC_DB=postgres</code> pointing at its own database and user on the RDS instance, so users, credentials and sessions survive pod restarts. <code>KC_HOSTNAME=https://auth.frankbluemind.com</code>, forwarded headers trusted from the ALB, health on the management port. The bootstrap admin password is generated into Secrets Manager.</li>
+<li><strong>Realm as code:</strong> <a href="https://github.com/adorsys/keycloak-config-cli">keycloak-config-cli</a> runs as an Argo <strong>PostSync Job</strong> after Keycloak is healthy. It reads <code>config/keycloak/realm.yaml</code> from the gitops repo and applies the difference idempotently on every sync: clients, roles, groups, users, mappers, brute-force protection. Keycloak's built-in <code>--import-realm</code> only imports when the realm does not exist yet, so later Git changes would never apply.</li>
+<li><strong>Groups claim:</strong> a client scope <code>groups</code> with a group-membership mapper puts group names into the ID token; Argo CD and Grafana map groups to roles.</li>
+</ul>
+<table>
+<tr><th>User</th><th>App</th><th>Argo CD</th><th>Grafana</th><th>Purpose</th></tr>
+<tr><td><code>zhaolin.sun</code></td><td>realm role <code>participant</code>, linked to participant P1</td><td><code>argocd-admins</code> → <code>role:admin</code></td><td><code>grafana-admins</code> → Admin</td><td>Owner; raises support requests</td></tr>
+<tr><td><code>case.officer</code></td><td><code>agency_staff</code></td><td>no access</td><td>no access</td><td>Approves or rejects requests and claims</td></tr>
+<tr><td><code>demo.guest</code></td><td><code>participant</code>, linked to demo participant P3</td><td><code>argocd-readonly</code> → <code>role:readonly</code></td><td><code>grafana-viewers</code> → Viewer</td><td>Shared reviewer login: raise requests, run GraphQL queries, look but not touch</td></tr>
+<tr><td><code>sam.nominee</code> / <code>riley.provider</code></td><td><code>nominee</code> (acts for P1) / <code>provider</code> (PR1, booked on P1)</td><td>no access</td><td>no access</td><td>Show field masking per role</td></tr>
+</table>
+<table>
+<tr><th>Keycloak client</th><th>Type</th><th>Used by</th><th>Notes</th></tr>
+<tr><td><code>spa</code></td><td>Public, Authorization Code + PKCE</td><td>The SPA in the browser</td><td>Redirect URI on <code>app.frankbluemind.com</code>; an audience mapper adds <code>demo-api</code></td></tr>
+<tr><td><code>demo-api</code></td><td>Audience only (no login)</td><td>demo-api's token check</td><td>Access tokens must carry <code>aud: demo-api</code></td></tr>
+<tr><td><code>demo-api-svc</code></td><td>Confidential, client credentials</td><td>demo-api → payments-svc</td><td>Audience <code>payments-svc</code>; secret generated in Secrets Manager, delivered by ESO</td></tr>
+<tr><td><code>argocd</code></td><td>Confidential OIDC</td><td>Argo CD</td><td>Groups claim; secret generated → ESO → <code>argocd-secret</code></td></tr>
+<tr><td><code>grafana</code></td><td>Confidential OIDC</td><td>Grafana</td><td>Groups claim → <code>role_attribute_path</code>; secret generated → ESO</td></tr>
+</table>
+<div class="card warn">
+<p><strong>Passwords.</strong> The five demo users get random passwords that stay memorable (word-word-number-symbol, from a CSPRNG). <code>make secrets-seed</code> writes them to Secrets Manager (<code>demo/keycloak/users</code>); an ExternalSecret hands them to the realm Job as environment variables and keycloak-config-cli substitutes them at import time, re-setting them on every import. Git and the realm ConfigMap hold only <code>$(env:PW_&lt;USERNAME&gt;)</code> placeholders, so Argo CD&#39;s read-only role, which can read ConfigMaps, learns nothing. The generated client secrets above take the same path and are never human-typed.</p>
+<p><strong>Accepted risk:</strong> a public site with shared demo logins. Cheap mitigations: Keycloak brute-force detection; guests are read-only in Argo CD and Grafana; only <code>zhaolin.sun</code> is an admin; the Keycloak admin console is not routed; optionally an ALB IP allowlist on <code>argocd.frankbluemind.com</code>; rotate the passwords after use (<code>ROTATE_DEMO_PASSWORDS=1 make secrets-seed</code>, then sync the realm).</p>
+<p><strong>Production path:</strong> no shared logins, and TOTP MFA required for admin groups.</p>
+</div>
+<details><summary>config/keycloak/realm.yaml (keycloak-config-cli, excerpt)</summary>
+<pre><code>realm: demo
+enabled: true
+bruteForceProtected: true
+failureFactor: 10
+groups:
+  - name: argocd-admins
+  - name: argocd-readonly
+  - name: grafana-admins
+  - name: grafana-viewers
+roles:
+  realm:
+    - name: participant
+    - name: nominee
+    - name: provider
+    - name: agency_staff
+users:
+  - username: zhaolin.sun
+    enabled: true
+    realmRoles: [participant]
+    groups: [/argocd-admins, /grafana-admins]
+    attributes: { participant_id: [P1] }
+    credentials:
+      - { type: password, temporary: false, value: "$(env:PW_ZHAOLIN_SUN)" } # Secrets Manager demo/keycloak/users
+  - username: case.officer
+    enabled: true
+    realmRoles: [agency_staff]
+  - username: demo.guest
+    enabled: true
+    realmRoles: [participant]
+    groups: [/argocd-readonly, /grafana-viewers]
+    attributes: { participant_id: [P3] }
+clients:
+  - clientId: argocd
+    publicClient: false
+    redirectUris: ["https://argocd.frankbluemind.com/auth/callback"]
+    defaultClientScopes: [profile, email, groups]</code></pre>
+</details>
+<details><summary>Argo CD and Grafana SSO settings (excerpt)</summary>
+<pre><code># argocd-cm
+url: https://argocd.frankbluemind.com
+admin.enabled: "false"                          # after SSO is verified
+oidc.config: |
+  name: Keycloak
+  issuer: https://auth.frankbluemind.com/realms/demo
+  clientID: argocd
+  clientSecret: $oidc.keycloak.clientSecret     # key in argocd-secret, written by ESO
+  requestedScopes: ["openid", "profile", "email", "groups"]
+# argocd-rbac-cm
+policy.default: ""                              # no access unless a group grants it
+policy.csv: |
+  g, argocd-admins, role:admin
+  g, argocd-readonly, role:readonly
+
+# grafana.ini (Helm values)
+[server]
+root_url = https://grafana.frankbluemind.com
+[auth]
+disable_login_form = true
+[auth.generic_oauth]
+enabled = true
+name = Keycloak
+client_id = grafana
+client_secret = $__file{/etc/secrets/grafana-oidc/client_secret}
+scopes = openid profile email groups
+auth_url = https://auth.frankbluemind.com/realms/demo/protocol/openid-connect/auth
+token_url = https://auth.frankbluemind.com/realms/demo/protocol/openid-connect/token
+api_url = https://auth.frankbluemind.com/realms/demo/protocol/openid-connect/userinfo
+role_attribute_path = contains(groups[*], 'grafana-admins') &amp;&amp; 'Admin' || contains(groups[*], 'grafana-viewers') &amp;&amp; 'Viewer'
+role_attribute_strict = true                    # no matching group → no access</code></pre>
+</details>
+
+<h2 id="otel">4. Observability: OpenTelemetry metrics and traces</h2>
+<div class="card note">
+<p><strong>Decision:</strong> the app speaks only OpenTelemetry (OTLP). An in-cluster <strong>ADOT collector</strong> (AWS Distro for OpenTelemetry) forwards traces to <strong>AWS X-Ray</strong> and metrics to <strong>Amazon Managed Service for Prometheus</strong>; logs go to <strong>CloudWatch Logs</strong> through Fluent Bit. <strong>Self-hosted Grafana</strong> (one small pod, installed by Argo) is the UI over all three, with Keycloak SSO. The collector is the single seam for data, Grafana the single seam for viewing: changing a backend is config, never app code.</p>
+</div>
+<div class="dia">
+<svg viewBox="0 0 1180 300" role="img" aria-labelledby="o1t">
+<title id="o1t">App pods and Keycloak send OTLP to the ADOT collector, which exports traces to X-Ray and metrics to Managed Prometheus. Fluent Bit ships logs to CloudWatch Logs. Self-hosted Grafana in the same cluster reads all three and is reached at grafana.frankbluemind.com through Keycloak SSO.</title>
+<defs><marker id="o1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="cluster" x="8" y="10" width="620" height="282" rx="12"/>
+<text x="24" y="34"><tspan class="h c-tf">EKS cluster</tspan><tspan class="s" dx="8">collector, Fluent Bit, Grafana installed by Argo CD · IAM via Pod Identity</tspan></text>
+<rect class="argo" x="24" y="50" width="200" height="60" rx="8"/><text class="t" x="36" y="74">demo-api pods</text><text class="s" x="36" y="92">OTel Go SDK · http, gqlgen, pgx</text>
+<rect class="argo" x="24" y="130" width="200" height="56" rx="8"/><text class="t" x="36" y="153">Keycloak</text><text class="s" x="36" y="171">tracing → OTLP (planned)</text>
+<rect class="argo" x="24" y="214" width="200" height="56" rx="8"/><text class="t" x="36" y="237">stdout JSON logs</text><text class="s" x="36" y="255">slog with trace_id, span_id</text>
+<rect class="argo" x="300" y="80" width="190" height="96" rx="8"/><text class="t" x="312" y="106">ADOT collector</text><text class="s" x="312" y="126">otlp → batch → exporters</text><text class="s" x="312" y="144">Deployment, 1 replica</text><text class="s" x="312" y="162">Pod Identity: X-Ray, AMP</text>
+<rect class="argo" x="300" y="214" width="190" height="56" rx="8"/><text class="t" x="312" y="237">Fluent Bit</text><text class="s" x="312" y="255">DaemonSet · tails node logs</text>
+
+<text class="h c-tf" x="680" y="30">AWS-managed backends · Terraform</text>
+<rect class="tf" x="680" y="40" width="200" height="56" rx="8"/><text class="t" x="692" y="63">AWS X-Ray</text><text class="s" x="692" y="81">traces · CloudWatch trace map</text>
+<rect class="tf" x="680" y="124" width="200" height="56" rx="8"/><text class="t" x="692" y="147">Managed Prometheus</text><text class="s" x="692" y="165">metrics · remote write</text>
+<rect class="tf" x="680" y="214" width="200" height="56" rx="8"/><text class="t" x="692" y="237">CloudWatch Logs</text><text class="s" x="692" y="255">7-day retention</text>
+
+<rect class="you" x="960" y="16" width="200" height="50" rx="8"/><text class="t" x="972" y="37">Browser</text><text class="s" x="972" y="55">grafana.frankbluemind.com</text>
+<rect class="argo" x="960" y="100" width="200" height="120" rx="8"/><text class="t" x="972" y="124">Grafana (self-hosted)</text><text class="s" x="972" y="144">same cluster · 1 pod</text><text class="s" x="972" y="162">Keycloak SSO · guest = Viewer</text><text class="s" x="972" y="180">datasources: SigV4, Pod Identity</text><text class="s" x="972" y="198">alerts → SNS email</text>
+
+<path class="flow" d="M224 80 L298 112" marker-end="url(#o1-a)"/><text class="s" x="232" y="72">OTLP gRPC</text>
+<path class="flow" d="M224 158 L298 146" marker-end="url(#o1-a)"/>
+<path class="flow" d="M224 242 H298" marker-end="url(#o1-a)"/>
+<path class="flow" d="M490 110 L678 70" marker-end="url(#o1-a)"/><text class="s" x="560" y="80">traces</text>
+<path class="flow" d="M490 140 L678 152" marker-end="url(#o1-a)"/><text class="s" x="540" y="136">metrics · SigV4</text>
+<path class="flow" d="M490 242 H678" marker-end="url(#o1-a)"/><text class="s" x="570" y="236">logs</text>
+<path class="flow dash" d="M880 68 L958 124" marker-end="url(#o1-a)"/>
+<path class="flow dash" d="M880 152 H958" marker-end="url(#o1-a)"/><text class="s" x="896" y="144">reads</text>
+<path class="flow dash" d="M880 242 L958 200" marker-end="url(#o1-a)"/>
+<path class="flow" d="M1060 66 V98" marker-end="url(#o1-a)"/>
+</svg>
+</div>
+<p class="small">Grafana runs in the same cluster; it is drawn on the right because it only reads from the backends.</p>
+
+<table>
+<tr><th>Layer</th><th>Choice</th><th>Notes</th></tr>
+<tr><td>App instrumentation <strong>(built)</strong></td><td>OpenTelemetry Go SDK in the kit (<code>internal/platform/otel</code>), OTLP gRPC to the collector</td><td>
+<ul>
+<li><strong>HTTP</strong> (<code>otel.HTTPMiddleware</code>, otelhttp): a server span <code>POST /graphql</code> and <code>http.server.request.duration</code> labelled with the chi route template (a 404 keeps an empty route) and status code; <code>server.address</code> is the service name, never the Host header; <code>/healthz</code>, <code>/readyz</code>, <code>/metrics</code> are not recorded. 401 and 403 responses count in <code>auth.failures</code>.</li>
+<li><strong>GraphQL</strong> (<code>otelgql</code>): a span per operation named by its <em>root fields</em> (<code>query.participant</code>, <code>mutation.submitClaim</code>, <code>query.me+plan</code>; more than two become <code>query.multiple</code>; a document that does not parse or validate is <code>other</code>), a child span per root resolver, and <code>graphql.operations</code> / <code>graphql.operation.duration</code>. The client's <code>operationName</code> never becomes a label.</li>
+<li><strong>SQL</strong> (<code>otelpgx</code>): a client span per statement, named after the sqlc query (<code>GetPlan</code>), with no SQL text or arguments; only inside a traced request, so readiness pings never start traces. Pool gauges <code>db.pool.*</code>.</li>
+<li><strong>Outbound</strong>: <code>otel.Transport</code> on the Keycloak discovery/JWKS client and on the payments client (its token request too), so one trace runs from demo-api's <code>approveClaim</code> into payments-svc.</li>
+<li><strong>Propagation</strong>: W3C trace context, baggage and the X-Ray header; trace ids come from the X-Ray id generator, so X-Ray accepts them. demo-api is a <em>public endpoint</em>: each request starts a new trace and a caller's trace context is kept only as a link, so nobody outside can join a trace or force sampling; payments-svc (internal) continues demo-api's trace. <code>slog</code> lines carry <code>trace_id</code>, <code>span_id</code> and <code>xray_trace_id</code> (<code>1-xxxxxxxx-…</code>, searchable in X-Ray as-is).</li>
+<li>Go runtime metrics; every seconds histogram uses the buckets 5 ms … 10 s.</li>
+<li>Keycloak's built-in tracing: planned, not enabled.</li>
+</ul></td></tr>
+<tr><td>Collector</td><td>ADOT collector (Helm chart, installed by Argo)</td><td>A Kubernetes object, so Argo owns it (the IaC rule). Pod Identity grants X-Ray write and AMP remote write. Memory limiter + batch processors.</td></tr>
+<tr><td>Traces</td><td>AWS X-Ray</td><td>Viewed in Grafana (X-Ray data-source plugin) and in the CloudWatch trace map. Free tier covers demo volume.</td></tr>
+<tr><td>Metrics</td><td>Amazon Managed Service for Prometheus (AMP)</td><td>PromQL, remote write with SigV4. Small cost at demo volume.</td></tr>
+<tr><td>Logs</td><td>Fluent Bit → CloudWatch Logs</td><td>7-day retention keeps the per-GB cost small. Grafana's CloudWatch data source queries them.</td></tr>
+<tr><td>Dashboards + alerts</td><td>Grafana, self-hosted (Helm chart via Argo)</td><td>
+<ul>
+<li>UI only: data stays in the AWS backends; dashboards and data sources are provisioned from Git.</li>
+<li>Data sources: AMP (Prometheus with SigV4), X-Ray plugin, CloudWatch; IAM through a Pod Identity role.</li>
+<li>Keycloak SSO: <code>zhaolin.sun</code> is Admin, <code>demo.guest</code> is Viewer; no local login form.</li>
+<li>Optional externally shared (public) link for the RED/scaling dashboard: read-only, fixed time range, no login.</li>
+<li>Alerting → SNS email contact point. Roughly zero cost: one small pod.</li>
+</ul></td></tr>
+<tr><td>AWS resources</td><td>Terraform <code>infra/eks/observability.tf</code></td><td>AMP workspace, CloudWatch log groups, Pod Identity roles for the collector and for Grafana, SNS topic for alerts.</td></tr>
+</table>
+
+<h3>Alternatives</h3>
+<table>
+<tr><th>Option</th><th>Good</th><th>Why not chosen</th></tr>
+<tr><td>Amazon Managed Grafana as the UI</td><td>Zero-ops; best when the organisation already uses IAM Identity Center</td><td>Every viewer must sign in through IAM Identity Center or SAML, and it is billed per active user. That doesn't fit a public demo with shared reviewer logins.</td></tr>
+<tr><td>CloudWatch Observability EKS add-on only (Container Insights + Application Signals)</td><td>Fewest pieces, CloudWatch-native, one add-on</td><td>Less of a Prometheus/Grafana story. <strong>KISS fallback</strong> if time runs short.</td></tr>
+<tr><td>Self-hosted kube-prometheus-stack + Tempo/Loki</td><td>No licence cost, fully portable</td><td>Heavy for 2 nodes; you operate, upgrade and store the data</td></tr>
+<tr><td>Third-party SaaS (Datadog, Grafana Cloud, Honeycomb)</td><td>Rich UX, no backend to run</td><td>Extra vendor and cost; easy later, because the same collector can export there</td></tr>
+</table>
+
+<h3>What we measure and alert on</h3>
+<ul>
+<li><strong>RED per GraphQL operation (built):</strong> request rate, errors by <code>extensions.code</code>, latency histogram (p50/p95/p99).</li>
+<li><strong>What counts as an error:</strong> <code>outcome="error"</code> only when the <em>server</em> failed (<code>INTERNAL</code>, <code>UNAVAILABLE</code>, or an unknown code). The caller's mistakes and denials (<code>BAD_USER_INPUT</code>, <code>FORBIDDEN</code>, <code>UNAUTHENTICATED</code>, parse/validation/depth/complexity rejections, <code>RATE_LIMITED</code>) are <code>outcome="client_error"</code>; business results returned as union members (e.g. <code>BudgetExceededError</code>) are data, <code>outcome="ok"</code>. The error-rate alert counts server errors only, so a user typing a bad amount cannot page anyone.</li>
+<li><strong>Security signals:</strong> 401/403 counts, 429 rate-limit rejections, complexity and depth rejections.</li>
+<li><strong>Dependencies:</strong> DB pool in-use/idle/max (built); payments-svc calls as client spans in the approval's trace (built); circuit-breaker state changes as warning logs (a breaker metric is not built).</li>
+<li><strong>Business counters</strong> (planned): support requests raised, approved, rejected; claims submitted, approved; budget-exceeded outcomes.</li>
+<li><strong>Runtime:</strong> Go heap, goroutines, GC pauses.</li>
+<li><strong>Sampling:</strong> 100% in the demo; parent-based 10% in production.</li>
+<li><strong>Alerts</strong> (Grafana alerting → SNS email): server error rate &gt; 5% for 5 min (built); p95 &gt; 500 ms and a spike in 401s (planned).</li>
+<li><strong>One dashboard:</strong> RED per operation, HPA replica count, DB connections. The scaling load test is visible on it, and KEDA can later scale on the same AMP query (requests/s).</li>
+</ul>
+
+<details><summary>Go: wiring the kit (built)</summary>
+<pre><code>// cmd/api/main.go: config comes from OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME,
+// OTEL_TRACES_SAMPLER_ARG; an empty endpoint keeps every provider a no-op.
+shutdown, err := kitotel.Setup(context.WithoutCancel(ctx), cfg.Telemetry)
+if err != nil {
+	return fmt.Errorf("telemetry: %w", err)
+}
+defer kitotel.Flush(log, shutdown, 5*time.Second) // after the drain, inside the grace period
+
+verifier := oidc.New(authn.Config{ /* … */ Transport: kitotel.Transport(nil)})
+gql := graphql.NewHandler(svc, graphql.Options{ /* … */
+	Telemetry: otelgql.New(otelgql.Options{ClientErrorCodes: []string{graphql.CodeDepthLimit}}),
+})
+
+// cmd/api/store.go: the adapter only sees pgx's QueryTracer interface.
+pool, err := postgres.Open(ctx, cfg.DatabaseURL, postgres.PoolOptions{ /* … */ Tracer: otelpgx.NewTracer()})
+err = otelpgx.RecordPoolStats(pool)
+
+// cmd/api/router.go: the chain's tracing slot.
+r.Use(httpmw.Recover(log), httpmw.RequestID, kitotel.HTTPMiddleware("demo-api"), httpmw.AccessLog(log, clientIP) /* … */)</code></pre>
+</details>
+<details><summary>ADOT collector config (minimal)</summary>
+<pre><code>extensions:
+  sigv4auth: { region: ap-southeast-2, service: aps }
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+processors:
+  memory_limiter: { check_interval: 1s, limit_percentage: 75, spike_limit_percentage: 20 }
+  batch: {}
+exporters:
+  awsxray: { region: ap-southeast-2 }
+  prometheusremotewrite:
+    endpoint: https://aps-workspaces.ap-southeast-2.amazonaws.com/workspaces/&lt;workspace-id&gt;/api/v1/remote_write
+    auth: { authenticator: sigv4auth }
+    resource_to_telemetry_conversion: { enabled: true }
+service:
+  extensions: [sigv4auth]
+  pipelines:
+    traces:  { receivers: [otlp], processors: [memory_limiter, batch], exporters: [awsxray] }
+    metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [prometheusremotewrite] }</code></pre>
+</details>
+<p class="small">Cost at demo volume: Grafana is one small pod; Managed Prometheus and X-Ray cost cents (X-Ray free tier); CloudWatch Logs per GB ingested, kept small by 7-day retention.</p>
+
+<h2 id="guardrails">5. Public-demo guardrails</h2>
+<div class="card warn">
+<ul>
+<li><strong>Least privilege for guests everywhere:</strong> <code>demo.guest</code> is a participant in the app, <code>role:readonly</code> in Argo CD (cannot sync, delete or see secrets), and Viewer in Grafana.</li>
+<li><strong>Admin only for <code>zhaolin.sun</code></strong> in Argo CD and Grafana; the Keycloak admin console is not routed publicly.</li>
+<li><strong>Keycloak brute-force detection</strong> locks an account after repeated failures.</li>
+<li><strong>API protection:</strong> the rate-limit middleware (token bucket per IP and subject) plus GraphQL depth and complexity limits.</li>
+<li><strong>Cost:</strong> the budget alert (~US$60/month) and <code>make eks-down</code> between sessions.</li>
+<li><strong>Optional:</strong> AWS WAF managed rule groups on the ALB (about US$5/month per web ACL plus per rule group), and an IP allowlist for <code>argocd.frankbluemind.com</code>.</li>
+<li><strong>After use:</strong> rotate every demo password and client secret.</li>
+</ul>
+</div>
+
+<h2 id="plan">6. Phased plan, app and infrastructure together</h2>
+<p>Each phase ends with its pass/fail checks run against the live system; the next phase starts only when every box is ticked.</p>
+<table>
+<tr><th>#</th><th>Build</th><th>Pass/fail checks</th></tr>
+<tr><td>1</td><td>Repo <code>eks-gitops-demo</code>: the app on <a href="eks-gitops-demo-code.html#arch">clean architecture</a> and the <a href="eks-gitops-demo-code.html#kit">platform kit</a>; CI → ECR</td><td><ul class="checks"><li><code>verify.sh</code> passes against the app</li><li>Coverage on <code>domain/</code> + <code>app/</code> is ≥ 80%</li><li>Merge to main puts a signed image and chart in ECR</li></ul></td></tr>
+<tr><td>2</td><td>EKS + Argo CD + RDS + Keycloak (production mode on RDS, realm as code with <code>zhaolin.sun</code>, <code>case.officer</code>, <code>demo.guest</code>; Argo SSO) + ALB/TLS for <code>app.</code>, <code>argocd.</code>, <code>auth.</code></td><td><ul class="checks"><li>PKCE login works at <code>https://app.frankbluemind.com</code></li><li><code>zhaolin.sun</code> logs in to Argo CD through Keycloak and has admin</li><li><code>demo.guest</code> sees the Argo CD apps read-only and cannot sync</li><li>Keycloak users survive a Keycloak pod restart (RDS persistence)</li><li>The Keycloak admin console is not reachable from the internet</li><li><code>make eks-down</code> leaves nothing billable in the cluster layer</li></ul></td></tr>
+<tr><td>3</td><td>Postgres store (same RDS, own database and user) + DataLoaders + the support-request flow + plan management and service bookings; migration Job, HPA</td><td><ul class="checks"><li><code>zhaolin.sun</code> raises a support request, <code>case.officer</code> approves it and a booking is reserved</li><li><code>zhaolin.sun</code> cannot decide their own request (<code>SelfApprovalNotAllowedError</code>)</li><li>Load test scales 2 → 6 pods and back; every pod returns the same data</li><li>No N+1 queries in the logs</li></ul></td></tr>
+<tr><td>4</td><td>OpenTelemetry: SDK + ADOT collector + X-Ray + Managed Prometheus + CloudWatch Logs (Fluent Bit) + self-hosted Grafana at <code>grafana.frankbluemind.com</code></td><td><ul class="checks"><li>One GraphQL request shows a single trace spanning ALB → API → resolvers → Postgres in X-Ray</li><li>The RED dashboard shows the scaling load test</li><li><code>demo.guest</code> opens Grafana through Keycloak SSO as Viewer and sees the RED dashboard</li><li>The public dashboard link opens without login</li><li>An alert fires on injected errors</li></ul></td></tr>
+<tr><td>5</td><td>Schema showcase (interfaces/<code>node</code>, search union, filter/sort, <code>UserError</code>, idempotency, <code>@deprecated</code>) + secrets (SOPS → Secrets Manager → ESO → Reloader)</td><td><ul class="checks"><li>A retried <code>submitClaim</code> creates exactly one claim</li><li>A SOPS edit reaches the pod with no manual step</li></ul></td></tr>
+<tr><td>6</td><td><a href="eks-gitops-demo-code.html#services">payments-svc</a> on the same kit + subscriptions (<code>LISTEN/NOTIFY</code>) + integration resilience + PR security scans</td><td><ul class="checks"><li>A subscriber on pod A sees a decision made on pod B</li><li>A payment call shows one trace across demo-api and payments-svc</li><li>The breaker opens when payments-svc is down</li><li>Only demo-api can reach payments-svc (NetworkPolicy)</li><li>Scans gate PRs</li></ul></td></tr>
+<tr><td>7</td><td>Hardening (limits, persisted queries) + IaC pipeline; rotate demo passwords after use</td><td><ul class="checks"><li>A too-deep query is rejected</li><li>A request flood gets 429s</li><li>In allowlist mode an ad-hoc query is refused and a trusted hash runs (built)</li><li>Chrome loads both pages and logs in with no CSP violation (built: <code>make browser-check</code>)</li><li>A Terraform PR shows the plan; merge applies it (built: <code>tf-plan.yaml</code> / <code>tf-apply.yaml</code>)</li><li>A merged sops edit lands in Secrets Manager with no manual step (built: <code>secrets-sync.yaml</code>)</li></ul></td></tr>
+</table>
+<div class="pager"><a href="eks-gitops-demo.html">← Platform architecture</a><a href="eks-gitops-demo-code.html">Code architecture →</a></div>
+</main>
+</body></html>

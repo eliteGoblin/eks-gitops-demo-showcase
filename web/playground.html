@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>demo-api playground</title>
+<link rel="stylesheet" href="https://unpkg.com/graphiql@3.8.3/graphiql.min.css" integrity="sha384-Mq3vbRBY71jfjQAt/DcjxUIYY33ksal4cgdRt9U/hNPvHBCaT2JfJ/PTRiPKf0aM" crossorigin="anonymous">
+<link rel="stylesheet" href="/playground.css">
+</head>
+<body>
+<header id="bar">
+  <strong>demo-api playground</strong>
+  <span id="who" class="bad">not logged in</span>
+  <span id="exp" class="muted"></span>
+  <button class="primary" id="btnLogin">Log in</button>
+  <button id="btnShow" hidden>Show token</button>
+  <button id="btnLogout" hidden>Log out</button>
+  <a href="/">token walkthrough page</a>
+</header>
+<section id="tokenPanel" hidden>
+  <pre id="token"></pre>
+  <button id="btnCopy">Copy access token</button> <span id="copied" class="muted"></span>
+</section>
+<div id="graphiql"><p class="hint">Log in to load the schema. Every request this page sends carries <code>Authorization: Bearer &lt;access token&gt;</code>, added automatically; the token is refreshed before it expires.</p></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/graphiql@3.8.3/graphiql.min.js" integrity="sha384-HbRVEFG0JGJZeAHCJ9Xm2+tpknBQ7QZmNlO/DgZtkZ0aJSypT96YYGRNod99l9Ie" crossorigin="anonymous"></script>
+<script src="/oidc.js"></script>
+<script src="/playground.js"></script>
+</body>
+</html>

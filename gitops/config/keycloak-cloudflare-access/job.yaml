@@ -1,0 +1,51 @@
+# Imports realm-cloudflare-access.yaml with keycloak-config-cli, like
+# config/keycloak/job.yaml does for the realm. A PostSync hook, so Argo CD runs
+# it only once the ExternalSecret is Healthy: the client secret exists before
+# the pod starts. Until Terraform has created it, this app's sync fails at the
+# ExternalSecret and retries (apps/dev/keycloak-cloudflare-access.yaml).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-config-cloudflare-access
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: keycloak-config-cli
+          image: adorsys/keycloak-config-cli:6.5.1-26.5.5
+          env:
+            - { name: KEYCLOAK_URL, value: "http://keycloak.keycloak.svc:8080" }
+            - name: KEYCLOAK_USER
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: username } }
+            - name: KEYCLOAK_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+            - { name: KEYCLOAK_AVAILABILITYCHECK_ENABLED, value: "true" }
+            - { name: KEYCLOAK_AVAILABILITYCHECK_TIMEOUT, value: "300s" }
+            - { name: IMPORT_FILES_LOCATIONS, value: /config/realm-cloudflare-access.yaml }
+            - { name: IMPORT_VARSUBSTITUTION_ENABLED, value: "true" }
+            - { name: IMPORT_CACHE_KEY, value: cloudflare-access } # its own import checksum, apart from the realm Job's
+            # Add and update, never delete: the file lists one client and nothing else.
+            - { name: IMPORT_MANAGED_CLIENT, value: no-delete }
+            - { name: IMPORT_MANAGED_CLIENTSCOPE, value: no-delete }
+            - { name: IMPORT_MANAGED_GROUP, value: no-delete }
+            - name: CLOUDFLARE_ACCESS_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: cloudflare-access-client-secret, key: clientSecret } }
+          volumeMounts:
+            - { name: realm, mountPath: /config }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: realm
+          configMap: { name: keycloak-realm-cloudflare-access }

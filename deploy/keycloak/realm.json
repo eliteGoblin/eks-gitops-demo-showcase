@@ -1,0 +1,553 @@
+{
+  "realm": "demo",
+  "enabled": true,
+  "displayName": "eks-gitops-demo",
+  "sslRequired": "external",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "permanentLockout": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "participant",
+        "description": "A person who holds a support plan"
+      },
+      {
+        "name": "nominee",
+        "description": "Acts for a participant under an active delegation"
+      },
+      {
+        "name": "provider",
+        "description": "Provider staff; linked to a provider via provider_id"
+      },
+      {
+        "name": "agency_staff",
+        "description": "Agency staff; may read everything (audited) and approve claims"
+      }
+    ],
+    "client": {
+      "payments-svc": [
+        {
+          "name": "payments:write",
+          "description": "Create payments (demo-api's service account)"
+        },
+        {
+          "name": "payments:read",
+          "description": "Read payments"
+        }
+      ]
+    }
+  },
+  "groups": [
+    {
+      "name": "argocd-admins",
+      "path": "/argocd-admins"
+    },
+    {
+      "name": "argocd-readonly",
+      "path": "/argocd-readonly"
+    },
+    {
+      "name": "grafana-admins",
+      "path": "/grafana-admins"
+    },
+    {
+      "name": "grafana-viewers",
+      "path": "/grafana-viewers"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "spa",
+      "name": "Browser pages (public client, Authorization Code + PKCE S256)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:8082/*",
+        "http://localhost:8182/*",
+        "https://app.frankbluemind.com/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8082",
+        "http://localhost:8182",
+        "https://app.frankbluemind.com"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8082/*##http://localhost:8182/*##https://app.frankbluemind.com/*"
+      },
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "demo-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "demo-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "participant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "participant_id",
+            "claim.name": "participant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "provider_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "provider_id",
+            "claim.name": "provider_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "nominee_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "nominee_id",
+            "claim.name": "nominee_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "demo-api",
+      "name": "GraphQL API (audience only, no login flows)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "verify-cli",
+      "name": "DEV ONLY: scripts/verify.sh (password grant). Delete outside local development.",
+      "description": "DEV-ONLY client. The password grant is deprecated by RFC 9700 and exists only so scripts/verify.sh can get tokens without a browser.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "demo-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "demo-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "participant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "participant_id",
+            "claim.name": "participant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "provider_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "provider_id",
+            "claim.name": "provider_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "nominee_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "nominee_id",
+            "claim.name": "nominee_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "payments-svc",
+      "name": "payments-svc (resource server)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false
+    },
+    {
+      "clientId": "demo-api-svc",
+      "name": "demo-api service account (calls payments-svc)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-demo-api-svc-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "payments-svc-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "payments-svc",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "load-generator",
+      "name": "k6 load generator (dev only: acts as a demo participant)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-only-load-generator-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "demo-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "demo-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "participant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "participant_id",
+            "claim.name": "participant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "provider_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "provider_id",
+            "claim.name": "provider_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "nominee_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "nominee_id",
+            "claim.name": "nominee_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "zhaolin.sun",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "zhaolin.sun@example.com",
+      "firstName": "Zhaolin",
+      "lastName": "Sun",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Coral-Igloo-5701!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "participant"
+      ],
+      "attributes": {
+        "participant_id": [
+          "P1"
+        ]
+      },
+      "groups": [
+        "argocd-admins",
+        "grafana-admins"
+      ]
+    },
+    {
+      "username": "case.officer",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "case.officer@example.com",
+      "firstName": "Casey",
+      "lastName": "Officer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Meteor-Panda-4383!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "agency_staff"
+      ]
+    },
+    {
+      "username": "demo.guest",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo.guest@example.com",
+      "firstName": "Jordan",
+      "lastName": "Lee",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Volcano-Bamboo-8609!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "participant"
+      ],
+      "attributes": {
+        "participant_id": [
+          "P3"
+        ]
+      },
+      "groups": [
+        "argocd-readonly",
+        "grafana-viewers"
+      ]
+    },
+    {
+      "username": "sam.nominee",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "sam.nominee@example.com",
+      "firstName": "Sam",
+      "lastName": "Rivera",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Timber-Flannel-1022!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "nominee"
+      ],
+      "attributes": {
+        "nominee_id": [
+          "N1"
+        ]
+      }
+    },
+    {
+      "username": "riley.provider",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "riley.provider@example.com",
+      "firstName": "Riley",
+      "lastName": "Chen",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fiddle-Noodle-2855!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "provider"
+      ],
+      "attributes": {
+        "provider_id": [
+          "PR1"
+        ]
+      }
+    },
+    {
+      "username": "service-account-demo-api-svc",
+      "enabled": true,
+      "serviceAccountClientId": "demo-api-svc",
+      "clientRoles": {
+        "payments-svc": [
+          "payments:write"
+        ]
+      }
+    },
+    {
+      "username": "service-account-load-generator",
+      "enabled": true,
+      "serviceAccountClientId": "load-generator",
+      "realmRoles": [
+        "participant"
+      ],
+      "attributes": {
+        "participant_id": [
+          "P3"
+        ]
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"participant_id\", \"displayName\": \"Participant id\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"provider_id\", \"displayName\": \"Provider id\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"nominee_id\", \"displayName\": \"Nominee id\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\", \"displayHeader\": \"User metadata\"}], \"unmanagedAttributePolicy\": \"ENABLED\"}"
+          ]
+        }
+      }
+    ]
+  }
+}

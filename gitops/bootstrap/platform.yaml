@@ -1,0 +1,20 @@
+# Child of the root Application (app of apps). Sync wave 1: secret store and Argo CD credentials (needs the external-secrets CRDs from wave 0).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+    targetRevision: main
+    path: platform
+    directory: { recurse: true }
+  destination: { server: https://kubernetes.default.svc, namespace: argocd }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [SkipDryRunOnMissingResource=true]

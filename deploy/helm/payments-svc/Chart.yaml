@@ -1,0 +1,6 @@
+apiVersion: v2
+name: payments-svc
+description: Internal REST mock of a payment processor; accepts only demo-api's client-credentials token.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

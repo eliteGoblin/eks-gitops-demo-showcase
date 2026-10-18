@@ -1,0 +1,201 @@
+# Grafana (wave 2): the one UI over the AWS-managed backends. Reads Managed
+# Prometheus, X-Ray and CloudWatch Logs with its own Pod Identity role; logs
+# people in through Keycloak (grafana-admins → Admin, grafana-viewers → Viewer);
+# keeps its state in a database on the shared RDS instance so public dashboard
+# links and alert state survive restarts. Credentials come from the Secrets that
+# grafana-prereqs syncs; nothing secret is in this file.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: grafana
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev, enable_observability: "true"}}
+  template:
+    metadata:
+      name: grafana
+      annotations: {argocd.argoproj.io/sync-wave: "2"}
+    spec:
+      project: default
+      source:
+        repoURL: https://grafana.github.io/helm-charts
+        chart: grafana
+        targetRevision: "10.5.15"
+        helm:
+          releaseName: grafana
+          valuesObject:
+            fullnameOverride: grafana
+            replicas: 1
+            serviceAccount: {create: true, name: grafana, automountServiceAccountToken: true} # Pod Identity
+            testFramework: {enabled: false}
+            initChownData: {enabled: false}
+            persistence: {enabled: false} # state lives in Postgres (RDS), not on disk
+            resources:
+              requests: {cpu: 100m, memory: 256Mi}
+              limits: {memory: 512Mi}
+            annotations:
+              secret.reloader.stakater.com/reload: "grafana-db,grafana-oidc,grafana-admin"
+            admin:
+              existingSecret: grafana-admin
+              userKey: admin-user
+              passwordKey: admin-password
+            env:
+              AWS_REGION: '{{index .metadata.annotations "aws_region"}}'
+              GF_DATABASE_TYPE: postgres
+              GF_DATABASE_HOST: '{{index .metadata.annotations "rds_endpoint"}}:5432'
+              GF_DATABASE_NAME: grafana
+              GF_DATABASE_SSL_MODE: require
+            envValueFrom:
+              GF_DATABASE_USER: {secretKeyRef: {name: grafana-db, key: username}}
+              GF_DATABASE_PASSWORD: {secretKeyRef: {name: grafana-db, key: password}}
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: {secretKeyRef: {name: grafana-oidc, key: clientSecret}}
+            plugins:
+              - grafana-x-ray-datasource 2.17.3
+            grafana.ini:
+              server:
+                domain: 'grafana.{{index .metadata.annotations "domain"}}'
+                root_url: 'https://grafana.{{index .metadata.annotations "domain"}}'
+              analytics: {check_for_updates: false, reporting_enabled: false}
+              security: {cookie_secure: true}
+              users: {auto_assign_org_role: Viewer, viewers_can_edit: false}
+              aws: {allowed_auth_providers: default} # AWS SDK default chain = Pod Identity
+              auth: {sigv4_auth_enabled: true}
+              auth.generic_oauth:
+                enabled: true
+                name: Keycloak
+                allow_sign_up: true
+                auto_login: false
+                use_pkce: true
+                client_id: grafana
+                scopes: openid profile email groups
+                auth_url: 'https://auth.{{index .metadata.annotations "domain"}}/realms/demo/protocol/openid-connect/auth'
+                token_url: 'https://auth.{{index .metadata.annotations "domain"}}/realms/demo/protocol/openid-connect/token'
+                api_url: 'https://auth.{{index .metadata.annotations "domain"}}/realms/demo/protocol/openid-connect/userinfo'
+                signout_redirect_url: 'https://auth.{{index .metadata.annotations "domain"}}/realms/demo/protocol/openid-connect/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.{{index .metadata.annotations "domain"}}%2Flogin'
+                login_attribute_path: preferred_username
+                name_attribute_path: name
+                email_attribute_path: email
+                # Keycloak groups claim → Grafana org role. Strict: a realm user in
+                # neither group is refused (Viewers can run raw datasource queries,
+                # so "anyone else is a Viewer" would hand CloudWatch Logs and X-Ray
+                # to every demo persona).
+                role_attribute_path: "contains(groups[*], 'grafana-admins') && 'Admin' || contains(groups[*], 'grafana-viewers') && 'Viewer'"
+                role_attribute_strict: true
+                allow_assign_grafana_admin: false
+              public_dashboards: {enabled: true}
+              log: {mode: console, level: info}
+            datasources:
+              datasources.yaml:
+                apiVersion: 1
+                datasources:
+                  - name: Managed Prometheus
+                    uid: amp
+                    type: prometheus
+                    access: proxy
+                    isDefault: true
+                    editable: false
+                    url: '{{index .metadata.annotations "amp_endpoint"}}'
+                    jsonData:
+                      httpMethod: POST
+                      prometheusType: Prometheus
+                      sigV4Auth: true
+                      sigV4AuthType: default
+                      sigV4Region: '{{index .metadata.annotations "aws_region"}}'
+                  - name: X-Ray
+                    uid: xray
+                    type: grafana-x-ray-datasource
+                    access: proxy
+                    editable: false
+                    jsonData:
+                      authType: default
+                      defaultRegion: '{{index .metadata.annotations "aws_region"}}'
+                  - name: CloudWatch Logs
+                    uid: cloudwatch
+                    type: cloudwatch
+                    access: proxy
+                    editable: false
+                    jsonData:
+                      authType: default
+                      defaultRegion: '{{index .metadata.annotations "aws_region"}}'
+                      logGroups:
+                        - arn: 'arn:aws:logs:{{index .metadata.annotations "aws_region"}}:*:log-group:{{index .metadata.annotations "apps_log_group"}}'
+                          name: '{{index .metadata.annotations "apps_log_group"}}'
+            dashboardProviders:
+              dashboardproviders.yaml:
+                apiVersion: 1
+                providers:
+                  - name: demo
+                    orgId: 1
+                    folder: demo
+                    type: file
+                    disableDeletion: true
+                    editable: false
+                    options: {path: /var/lib/grafana/dashboards/demo}
+            dashboardsConfigMaps:
+              demo: grafana-dashboards # from the grafana-prereqs chart
+            alerting:
+              contactpoints.yaml:
+                apiVersion: 1
+                contactPoints:
+                  - orgId: 1
+                    name: demo-alerts
+                    receivers:
+                      - uid: demo-alerts-sns
+                        type: sns
+                        settings:
+                          topic_arn: '{{index .metadata.annotations "alerts_topic_arn"}}'
+                          subject: 'demo-api alert'
+                          sigv4: {region: '{{index .metadata.annotations "aws_region"}}'} # default credential chain = Pod Identity
+              policies.yaml:
+                apiVersion: 1
+                policies:
+                  - orgId: 1
+                    receiver: demo-alerts
+                    group_by: [grafana_folder, alertname]
+                    group_wait: 30s
+                    group_interval: 2m
+                    repeat_interval: 1h
+              rules.yaml:
+                apiVersion: 1
+                groups:
+                  - orgId: 1
+                    name: demo-api
+                    folder: demo
+                    interval: 1m
+                    rules:
+                      - uid: demo-api-error-rate
+                        title: demo-api error rate above 5%
+                        condition: C
+                        for: 5m
+                        noDataState: OK
+                        execErrState: Error
+                        labels: {severity: warning, service: demo-api}
+                        annotations:
+                          summary: demo-api GraphQL error rate has been above 5% for 5 minutes
+                          runbook: Check the RED dashboard, then the newest traces in X-Ray for errors
+                        data:
+                          - refId: A
+                            relativeTimeRange: {from: 600, to: 0}
+                            datasourceUid: amp
+                            model:
+                              refId: A
+                              instant: true
+                              expr: sum(rate(graphql_operations_total{job="demo-api",outcome="error"}[5m])) / sum(rate(graphql_operations_total{job="demo-api"}[5m]))
+                          - refId: C
+                            datasourceUid: __expr__
+                            model:
+                              refId: C
+                              type: threshold
+                              expression: A
+                              conditions:
+                                - evaluator: {type: gt, params: [0.05]}
+      destination: {server: "{{.server}}", namespace: observability}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true]

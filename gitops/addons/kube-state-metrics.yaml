@@ -1,0 +1,36 @@
+# Installed on every cluster whose Argo CD cluster Secret has label enable_observability=true.
+# Kubernetes object state (HPA replicas, deployments, pods) as Prometheus metrics; the
+# collector scrapes it and remote-writes to Managed Prometheus.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_observability: "true" } }
+  template:
+    metadata:
+      name: "kube-state-metrics"
+    spec:
+      project: default
+      source:
+        repoURL: https://prometheus-community.github.io/helm-charts
+        chart: kube-state-metrics
+        targetRevision: "8.6.0"
+        helm:
+          releaseName: kube-state-metrics
+          valuesObject:
+            fullnameOverride: kube-state-metrics
+            resources:
+              requests: { cpu: 20m, memory: 64Mi }
+              limits: { memory: 192Mi }
+            # Only what the dashboards need; keeps series count small.
+            collectors: [deployments, horizontalpodautoscalers, pods, nodes, replicasets, jobs]
+      destination: { server: "{{.server}}", namespace: observability }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

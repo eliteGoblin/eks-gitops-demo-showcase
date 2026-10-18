@@ -1,0 +1,6 @@
+{ me { subject roles
+  participant { id schemeNumber givenName familyName dateOfBirth
+    plans { id status startDate endDate budgets { category allocated spent remaining }
+      claims(first: 5) { totalCount edges { node { id category amount status provider { name } } } } } }
+  provider { id name abn } }
+  claims(first: 5) { totalCount edges { node { id amount status plan { id participant { givenName dateOfBirth } } } } } }

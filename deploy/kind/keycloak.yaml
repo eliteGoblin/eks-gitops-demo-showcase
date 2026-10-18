@@ -1,0 +1,53 @@
+# DEV-ONLY Keycloak for the kind cluster: start-dev, in-memory H2, admin/admin, realm imported from
+# the ConfigMap "keycloak-realm" (created from deploy/keycloak/realm.json by `make kind-deploy`).
+#
+# Issuer: browser and pods must both see http://keycloak.localtest.me:8180/realms/demo.
+#   browser -> keycloak.localtest.me (public DNS: loopback) -> kind port mapping 8180 -> NodePort 30180
+#   pod     -> keycloak.localtest.me (CoreDNS rewrite, see setup-dns.sh) -> this Service on port 8180
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels: { app: keycloak }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0
+          args: ["start-dev", "--import-realm"]
+          env:
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin }
+            - { name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: admin }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            - { name: KC_HOSTNAME, value: "http://keycloak.localtest.me:8180" }
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+      volumes:
+        - name: realm
+          configMap: { name: keycloak-realm }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  type: NodePort
+  selector: { app: keycloak }
+  ports:
+    - { name: http, port: 8180, targetPort: http, nodePort: 30180 }

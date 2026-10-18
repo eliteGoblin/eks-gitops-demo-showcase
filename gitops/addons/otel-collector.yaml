@@ -1,0 +1,136 @@
+# Installed on every cluster whose Argo CD cluster Secret has label enable_observability=true.
+# One ADOT collector (AWS Distro for OpenTelemetry) as a gateway Deployment:
+#   apps → OTLP (otel-collector.observability.svc:4317 / :4318)
+#   traces  → AWS X-Ray
+#   metrics → Amazon Managed Service for Prometheus (remote write, SigV4 via Pod Identity)
+# It also scrapes kube-state-metrics and the kubelets' cAdvisor so the dashboards can
+# show HPA replicas and pod CPU next to the app's own metrics.
+# Values marked {{...}} come from the cluster Secret's annotations (Terraform outputs).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: otel-collector
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_observability: "true" } }
+  template:
+    metadata:
+      name: "otel-collector"
+    spec:
+      project: default
+      source:
+        repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+        chart: opentelemetry-collector
+        targetRevision: "0.175.0"
+        helm:
+          releaseName: otel-collector
+          valuesObject:
+            fullnameOverride: otel-collector
+            mode: deployment
+            replicaCount: 1
+            image:
+              repository: public.ecr.aws/aws-observability/aws-otel-collector
+              tag: v0.50.0
+            serviceAccount: { create: true, name: adot-collector } # Pod Identity: X-Ray + AMP
+            presets:
+              kubernetesAttributes: { enabled: true } # k8s.namespace/pod/deployment on every signal
+            clusterRole:
+              rules: # extra to the preset's: kubelet cAdvisor scrape through the API server proxy
+                - apiGroups: [""]
+                  resources: [nodes, nodes/metrics, nodes/proxy]
+                  verbs: [get, list, watch]
+            ports:
+              jaeger-compact: { enabled: false }
+              jaeger-thrift: { enabled: false }
+              jaeger-grpc: { enabled: false }
+              zipkin: { enabled: false }
+            resources:
+              requests: { cpu: 100m, memory: 256Mi }
+              limits: { memory: 512Mi }
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 10001
+              allowPrivilegeEscalation: false
+              capabilities: { drop: [ALL] }
+              seccompProfile: { type: RuntimeDefault }
+            config:
+              extensions:
+                sigv4auth:
+                  region: '{{index .metadata.annotations "aws_region"}}'
+                  service: aps
+              receivers:
+                jaeger: null
+                zipkin: null
+                prometheus:
+                  config:
+                    scrape_configs:
+                      - job_name: opentelemetry-collector # the collector's own health: sent/failed points
+                        scrape_interval: 15s
+                        static_configs:
+                          - targets: ['${env:MY_POD_IP}:8888']
+                      - job_name: kube-state-metrics
+                        scrape_interval: 15s
+                        static_configs:
+                          - targets: [kube-state-metrics.observability.svc:8080]
+                      - job_name: kubelet-cadvisor
+                        scrape_interval: 15s
+                        scheme: https
+                        tls_config: { ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt }
+                        authorization: { credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token }
+                        kubernetes_sd_configs: [{ role: node }]
+                        relabel_configs:
+                          - target_label: __address__
+                            replacement: kubernetes.default.svc:443
+                          - source_labels: [__meta_kubernetes_node_name]
+                            regex: (.+)
+                            target_label: __metrics_path__
+                            replacement: /api/v1/nodes/$${1}/proxy/metrics/cadvisor
+                          - source_labels: [__meta_kubernetes_node_name]
+                            target_label: node
+                        metric_relabel_configs:
+                          - source_labels: [__name__]
+                            regex: container_(cpu_usage_seconds_total|memory_working_set_bytes|cpu_cfs_throttled_seconds_total)
+                            action: keep
+                          - source_labels: [container]
+                            regex: (POD|)
+                            action: drop
+              processors:
+                memory_limiter: { check_interval: 5s, limit_percentage: 80, spike_limit_percentage: 25 }
+                batch: { timeout: 5s, send_batch_size: 1024 }
+                resource/env:
+                  attributes:
+                    - { key: deployment.environment.name, value: dev, action: upsert }
+                    # The kubernetesAttributes preset derives service.namespace from the pod's
+                    # namespace; prometheusremotewrite would then label every app series
+                    # job="<namespace>/<service>" (e.g. demo/demo-api) and break the dashboard
+                    # and alert contract (job="demo-api"). k8s.namespace.name stays a label.
+                    - { key: service.namespace, action: delete }
+              exporters:
+                debug: null # chart default, not used
+                awsxray:
+                  region: '{{index .metadata.annotations "aws_region"}}'
+                prometheusremotewrite:
+                  endpoint: '{{index .metadata.annotations "amp_endpoint"}}/api/v1/remote_write'
+                  auth: { authenticator: sigv4auth }
+                  resource_to_telemetry_conversion: { enabled: true } # service.name, k8s.pod.name… become labels
+                  timeout: 30s
+              service:
+                extensions: [health_check, sigv4auth]
+                pipelines:
+                  traces:
+                    receivers: [otlp]
+                    processors: [memory_limiter, resource/env, batch]
+                    exporters: [awsxray]
+                  metrics:
+                    receivers: [otlp, prometheus]
+                    processors: [memory_limiter, resource/env, batch]
+                    exporters: [prometheusremotewrite]
+                  logs: null # Fluent Bit ships logs
+      destination: { server: "{{.server}}", namespace: observability }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

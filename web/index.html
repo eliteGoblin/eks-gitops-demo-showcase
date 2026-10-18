@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>demo-api token walkthrough</title>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+<main>
+  <h1>demo-api: OAuth 2.0 / OIDC walkthrough</h1>
+  <p class="muted">Public SPA client <code>spa</code>, Authorization Code + PKCE (S256), tokens kept only in JavaScript memory. Log in with your demo account. For free-form queries use the <a href="/playground">playground</a>, which logs you in the same way and adds the token for you.</p>
+
+  <div class="card">
+    <h2>How the flow works (one line per step)</h2>
+    <ol class="steps">
+      <li><b>Discovery</b>: GET <code>/realms/demo/.well-known/openid-configuration</code> tells us the authorization, token and logout endpoints.</li>
+      <li><b>PKCE</b>: generate a random <code>code_verifier</code>, hash it with SHA-256 into <code>code_challenge</code>; only the hash leaves the browser now.</li>
+      <li><b>Redirect</b>: send the browser to the authorization endpoint with <code>response_type=code</code>, <code>client_id=spa</code>, <code>redirect_uri</code>, <code>state</code>, <code>code_challenge</code>.</li>
+      <li><b>Login</b>: Keycloak authenticates the user and redirects back to <code>&lt;this page&gt;?code=...&amp;state=...</code>.</li>
+      <li><b>Exchange</b>: POST the <code>code</code> plus the original <code>code_verifier</code> to the token endpoint; Keycloak hashes the verifier and compares it to the challenge, then returns tokens.</li>
+      <li><b>Use</b>: send <code>Authorization: Bearer &lt;access_token&gt;</code> to <code>/graphql</code>; the API validates signature, issuer, audience (<code>demo-api</code>), expiry and <code>typ=Bearer</code>.</li>
+      <li><b>Refresh</b>: the access token lives 5 minutes; 30 s before expiry the page swaps the refresh token for a new access token (the refresh token rotates too).</li>
+      <li><b>Logout</b>: redirect to the end-session endpoint with <code>id_token_hint</code>; Keycloak ends the session and sends you back here; the page clears its memory.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Session</h2>
+    <div>Status: <span id="status" class="status muted">not logged in</span></div>
+    <div>
+      <button class="primary" id="btnLogin">Login (redirect to Keycloak)</button>
+      <button id="btnLogout" disabled>Logout (Keycloak end_session + clear memory)</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Access token header (decoded)</h2>
+      <pre id="tokHeader">-</pre>
+      <h2>Access token payload (decoded)</h2>
+      <pre id="tokPayload">-</pre>
+    </div>
+    <div class="card">
+      <h2>GraphQL</h2>
+      <div>
+        <button id="btnMe" disabled>me</button>
+        <button id="btnMine" disabled>my participant / plan</button>
+        <button id="btnRun" disabled>Run custom query</button>
+      </div>
+      <textarea id="query"></textarea>
+      <div class="muted">Raw request header sent:</div>
+      <pre id="authHeader">-</pre>
+      <div class="muted">Response:</div>
+      <pre id="result">-</pre>
+    </div>
+  </div>
+  <p class="muted">Also available: <a href="/playground">/playground</a> (GraphiQL with login) and <a href="/healthz">/healthz</a>.</p>
+</main>
+<script src="/oidc.js"></script>
+<script src="/index.js"></script>
+</body>
+</html>

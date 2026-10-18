@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="100%" role="img" aria-labelledby="t d">
+  <title id="t">Go code structure</title>
+  <desc id="d">The service kit's middleware chain along the top, in order; below it the Clean Architecture rings: cmd composition roots, adapters, use cases with their ports, and the domain at the centre. Dependencies point inward.</desc>
+  <style>
+    .bg{fill:#f7f8fa}
+    .ring0{fill:#ffffff;stroke:#dfe3e8;stroke-width:1.5}
+    .ring1{fill:#f1f3f6;stroke:#dfe3e8;stroke-width:1.5}
+    .ring2{fill:#e3eef9;stroke:#0b5fa5;stroke-width:1.5}
+    .core{fill:#e2f3ea;stroke:#1e7f4f;stroke-width:1.5}
+    .card{fill:#ffffff;stroke:#dfe3e8;stroke-width:1.5}
+    .step{fill:#fff3dc;stroke:#9a5b00;stroke-width:1.5}
+    text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#1b1f24;font-size:13px}
+    .title{font-size:19px;font-weight:700}
+    .sub{font-size:13px;fill:#5b6470}
+    .cap{font-size:12.5px;fill:#5b6470}
+    .zl{font-size:13px;font-weight:700;fill:#5b6470}
+    .b{font-size:14px;font-weight:700}
+    .sb{font-size:12.5px;font-weight:700}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700;fill:#0b5fa5}
+    .s{font-size:12.5px;fill:#5b6470}
+    .xs{font-size:11px;fill:#5b6470}
+    .arr{fill:none;stroke:#0b5fa5;stroke-width:2;marker-end:url(#ah)}
+    .arr2{fill:none;stroke:#9a5b00;stroke-width:1.8;marker-end:url(#ah2)}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0b5fa5"/></marker>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9a5b00"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1200" height="750" rx="12"/>
+
+  <text class="title" x="30" y="36">Go code structure: Clean Architecture with a shared service kit</text>
+  <text class="sub" x="30" y="58">Dependencies point inward: cmd → internal/adapter → internal/app → internal/domain. The kit in internal/platform serves cmd and the adapters.</text>
+
+  <!-- middleware strip -->
+  <text class="zl" x="30" y="90">internal/platform/httpmw — the middleware chain cmd/api/router.go mounts, in this order</text>
+  <rect class="step" x="30" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="40" y="120">RequestID</text>
+  <text class="xs" x="40" y="138">X-Request-ID</text>
+  <rect class="step" x="158" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="168" y="120">tracing</text>
+  <text class="xs" x="168" y="138">platform/otel span</text>
+  <rect class="step" x="286" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="296" y="120">Recover</text>
+  <text class="xs" x="296" y="138">panic → 500</text>
+  <rect class="step" x="414" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="424" y="120">AccessLog</text>
+  <text class="xs" x="424" y="138">JSON, client_ip</text>
+  <rect class="step" x="542" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="552" y="120">SecurityHeaders</text>
+  <text class="xs" x="552" y="138">strict CSP</text>
+  <rect class="step" x="670" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="680" y="120">CORS</text>
+  <text class="xs" x="680" y="138">allowed origins</text>
+  <rect class="step" x="798" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="808" y="120">Limit</text>
+  <text class="xs" x="808" y="138">max body, timeout</text>
+  <rect class="step" x="926" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="936" y="120">RateLimit</text>
+  <text class="xs" x="936" y="138">per client IP</text>
+  <rect class="step" x="1054" y="100" width="116" height="50" rx="7"/>
+  <text class="sb" x="1064" y="120">Authenticate</text>
+  <text class="xs" x="1064" y="138">POST /graphql only</text>
+  <path class="arr2" d="M146 125 H157"/>
+  <path class="arr2" d="M274 125 H285"/>
+  <path class="arr2" d="M402 125 H413"/>
+  <path class="arr2" d="M530 125 H541"/>
+  <path class="arr2" d="M658 125 H669"/>
+  <path class="arr2" d="M786 125 H797"/>
+  <path class="arr2" d="M914 125 H925"/>
+  <path class="arr2" d="M1042 125 H1053"/>
+  <text class="cap" x="30" y="170">payments-svc mounts the same chain with ErrorFormat(REST) first. Rate limiting runs before authentication, so a flood of bad tokens never</text>
+  <text class="cap" x="30" y="186">reaches the JWKS verifier, and the request id exists before anything logs. The kit also holds platform/authn (the token verifier behind Authenticate:</text>
+  <text class="cap" x="30" y="202">RS256 via JWKS, issuer, audience, expiry, typ, azp allowlist) and platform/otel (spans, RED metrics, trace ids in every log line).</text>
+
+  <!-- rings -->
+  <rect class="ring0" x="30" y="215" width="1140" height="515" rx="14"/>
+  <text class="m" x="46" y="238">cmd/api · cmd/payments</text>
+  <text x="246" y="238">— composition roots: config → adapters → use cases → server; the router mounts the chain and the routes /, /playground, /graphql, /healthz, /readyz</text>
+
+  <rect class="ring1" x="100" y="262" width="1000" height="428" rx="12"/>
+  <text class="m" x="116" y="283">internal/adapter</text>
+  <text x="264" y="283">— the frameworks live here (gqlgen, pgx + sqlc, go-oidc, HTTP clients); each package implements a port the use cases own</text>
+
+  <rect class="card" x="120" y="300" width="350" height="75" rx="8"/>
+  <text class="b" x="130" y="320">graphql — gqlgen</text>
+  <text class="s" x="130" y="336">schema, thin resolvers, error presenter</text>
+  <text class="s" x="130" y="351">@auth directive → app.RoleGate</text>
+  <text class="s" x="130" y="366">persisted queries, DataLoaders, subscriptions</text>
+
+  <rect class="card" x="490" y="300" width="270" height="75" rx="8"/>
+  <text class="b" x="500" y="320">postgres — pgx + sqlc</text>
+  <text class="s" x="500" y="336">repositories, goose migrations + seed</text>
+  <text class="s" x="500" y="351">SELECT … FOR UPDATE on budget writes</text>
+  <text class="s" x="500" y="366">NOTIFY/LISTEN for live updates</text>
+
+  <rect class="card" x="780" y="300" width="300" height="75" rx="8"/>
+  <text class="b" x="790" y="320">memory — in-memory repositories</text>
+  <text class="s" x="790" y="336">seeded demo data, one lock</text>
+  <text class="s" x="790" y="351">same contract tests as postgres</text>
+
+  <rect class="ring2" x="170" y="405" width="860" height="175" rx="12"/>
+  <text class="m" x="186" y="426">internal/app</text>
+  <text x="290" y="426">— use cases, authorization policy, consumer-owned ports</text>
+
+  <rect class="card" x="190" y="440" width="270" height="125" rx="8"/>
+  <text class="b" x="200" y="460">Policy + guard</text>
+  <text class="s" x="200" y="477">every use case authorizes the caller</text>
+  <text class="s" x="200" y="493">(roles, relationships, scopes) and audits</text>
+  <text class="s" x="200" y="509">each allow and deny</text>
+  <text class="s" x="200" y="525">RoleGate: the check behind @auth</text>
+  <text class="s" x="200" y="541">field masking per role</text>
+
+  <rect class="core" x="490" y="455" width="220" height="95" rx="8"/>
+  <text class="m" x="500" y="476">internal/domain</text>
+  <text class="s" x="500" y="494">entities, value objects,</text>
+  <text class="s" x="500" y="510">business rules, typed errors</text>
+  <text class="s" x="500" y="526">imports nothing</text>
+
+  <rect class="card" x="740" y="440" width="270" height="125" rx="8"/>
+  <text class="b" x="750" y="460">Ports declared here</text>
+  <text class="s" x="750" y="476">ParticipantRepository · PlanRepository</text>
+  <text class="s" x="750" y="492">ProviderRepository · ClaimRepository</text>
+  <text class="s" x="750" y="508">SupportRequestRepository · Relationships</text>
+  <text class="s" x="750" y="524">BookingRepository · Auditor · Events</text>
+  <text class="s" x="750" y="540">PaymentGateway · Clock · IDGenerator</text>
+
+  <rect class="card" x="120" y="610" width="300" height="65" rx="8"/>
+  <text class="b" x="130" y="630">oidc — token → app.Principal</text>
+  <text class="s" x="130" y="647">verifier in platform/authn: RS256 via JWKS,</text>
+  <text class="s" x="130" y="662">iss, aud, exp, typ Bearer, azp allowlist</text>
+
+  <rect class="card" x="440" y="610" width="300" height="65" rx="8"/>
+  <text class="b" x="450" y="630">paymentsclient — calls payments-svc</text>
+  <text class="s" x="450" y="647">client-credentials token, Idempotency-Key,</text>
+  <text class="s" x="450" y="662">retries, circuit breaker</text>
+
+  <rect class="card" x="760" y="610" width="320" height="65" rx="8"/>
+  <text class="b" x="770" y="630">audit · events</text>
+  <text class="s" x="770" y="647">audit: decisions → structured log lines</text>
+  <text class="s" x="770" y="662">events: hub per replica, Postgres NOTIFY/LISTEN</text>
+
+  <text class="cap" x="46" y="714">internal/payments holds payments-svc's own core (entity, rules, use cases, ports) with memstore, httpapi and identity adapters: the same layering, smaller.</text>
+
+  <!-- inward dependency arrows -->
+  <path class="arr" d="M295 376 V404"/>
+  <path class="arr" d="M625 376 V404"/>
+  <path class="arr" d="M930 376 V404"/>
+  <path class="arr" d="M270 609 V581"/>
+  <path class="arr" d="M590 609 V581"/>
+  <path class="arr" d="M920 609 V581"/>
+  <path class="arr" d="M460 502 H489"/>
+  <path class="arr" d="M740 502 H711"/>
+</svg>

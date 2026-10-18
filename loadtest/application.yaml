@@ -1,0 +1,21 @@
+# Argo CD Application for the load generator: copy into the gitops repo
+# (apps/dev/load-generator.yaml). No automated sync: pressing "Sync" in the
+# Argo UI (or `argocd app sync load-generator`) starts one ~3-minute run.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: load-generator
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/eliteGoblin/eks-gitops-demo
+    targetRevision: main
+    path: loadtest
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  # Manual sync only, so no syncPolicy at all. Never write `syncPolicy: {}`:
+  # Argo CD's application controller deletes an empty syncPolicy from the live
+  # object, so the parent app of apps would see git != live, go OutOfSync and
+  # re-apply it, forever.

@@ -1,0 +1,52 @@
+# demo-api in the public dev environment. Production-safe defaults stay on
+# (ENV=prod, https issuer); the playground and introspection are explicitly
+# enabled because this environment is a public demo.
+image:
+  repository: 852544369865.dkr.ecr.ap-southeast-2.amazonaws.com/demo-api
+# No replicaCount: the HPA below owns it (the Application ignores /spec/replicas).
+config:
+  oidcIssuer: https://auth.frankbluemind.com/realms/demo
+  oidcAudience: demo-api
+  oidcAllowedClients: [spa, load-generator] # tokens from any other client are refused
+  env: prod
+  playgroundEnabled: true
+  introspectionEnabled: true
+  # Rate limiting (and the access log's client_ip) keys on CF-Connecting-IP, set
+  # by Cloudflare's edge. Only cloudflared, the e2e runner and the node itself
+  # can reach the pods (cloudflared/networkpolicies.yaml), so no other peer can
+  # set it.
+  trustCfConnectingIp: true
+  # The limiter keys on the client IP and the k6 load generator is one IP, so
+  # the demo limits are high; a real environment keeps the defaults (20/40).
+  rateLimitRps: 200
+  rateLimitBurst: 400
+# OpenTelemetry: traces to X-Ray and metrics to Managed Prometheus through the
+# in-cluster collector (sampling 100% in the demo).
+telemetry:
+  endpoint: http://otel-collector.observability.svc:4317
+# Approving a claim pays it through payments-svc (this namespace) with
+# demo-api's own client-credentials token (Keycloak client demo-api-svc).
+payments:
+  enabled: true
+  url: http://payments-svc.demo.svc:8083
+  existingSecret: demo-api-payments # from charts/demo-secrets (Secrets Manager demo/demo-api-svc)
+# Secret delivery and rotation demo (app docs: "Secrets"): the partner API key
+# both as PARTNER_API_KEY (Reloader rolls the pods) and as a hot-reloaded file.
+partnerKey:
+  envSecret: demo-api-partner-env   # from charts/demo-secrets, refreshed every 3m
+  fileSecret: demo-api-partner-file # from charts/demo-secrets, refreshed every 30s
+database:
+  enabled: true
+  existingSecret: demo-api-db # from charts/demo-secrets (external-secrets, RDS master secret)
+  seed: true # the public demo wants the demo participants and plans
+  createDatabase: true # dev creates the demoapi database on first sync (`api migrate --create-db`)
+  maxConns: 6 # (6 HPA max + 1 rollout surge) x (6 + 1 listener) = 49; with Keycloak 10, Grafana ~4, migrate 3: 66 of 76 usable
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 60
+  scaleDownStabilizationSeconds: 120
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

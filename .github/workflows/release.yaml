@@ -1,0 +1,208 @@
+name: release
+on:
+  push:
+    branches: [main]
+    # A secret rotation (secrets/**, synced by secrets-sync.yaml) must not
+    # rebuild and redeploy the services: the pods pick the new value up on
+    # their own (file reload, or Reloader for environment variables). Nor must
+    # a change to the infrastructure roots, their workflows, the docs or this
+    # file alone: a release is a new image tag, which rolls every pod, and
+    # those changes ship nothing to the pods. A pipeline change takes effect
+    # with the next push that does.
+    paths-ignore:
+      - secrets/**
+      - infra/**
+      - docs/**
+      - scripts/ci/tf.sh
+      - .github/workflows/tf-plan.yaml
+      - .github/workflows/tf-apply.yaml
+      - .github/workflows/release.yaml
+      - README.md
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+env:
+  # Who may have signed a release: this workflow on main (checked by cosign verify).
+  SIGNER: https://github.com/${{ github.repository }}/.github/workflows/release.yaml@refs/heads/main
+  SIGNER_ISSUER: https://token.actions.githubusercontent.com
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  # One leg per service: the same Dockerfile (CMD picks the binary), its own
+  # image and chart repositories, each signed and SBOM-attested.
+  release:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC → AWS role ci-ecr-push, and keyless cosign signing; no stored keys
+    strategy:
+      matrix:
+        include:
+          - service: demo-api
+            cmd: api
+          - service: payments-svc
+            cmd: payments
+    env:
+      SERVICE: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - id: version
+        name: Versions, and what an earlier attempt of this run already pushed
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          tag="${GITHUB_SHA::7}"
+          chart="0.1.${GITHUB_RUN_NUMBER}"
+          # ECR tags are immutable, so a re-run must reuse what is already there.
+          digest_of() { aws ecr describe-images --repository-name "$1" --image-ids imageTag="$2" \
+                          --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true; }
+          {
+            echo "tag=$tag"
+            echo "chart=$chart"
+            echo "image=$REGISTRY/$SERVICE"
+            echo "chart_repo=$REGISTRY/charts/$SERVICE"
+            echo "image_digest=$(digest_of "$SERVICE" "$tag")"
+            echo "chart_digest=$(digest_of "charts/$SERVICE" "$chart")"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.version.outputs.image_digest == ''
+      - id: build
+        name: Build and push the arm64 image
+        if: steps.version.outputs.image_digest == ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          build-args: CMD=${{ matrix.cmd }}
+          push: true
+          provenance: false
+          tags: ${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}
+
+      - id: chart
+        name: Package and push the Helm chart (OCI)
+        env:
+          CHART: ${{ steps.version.outputs.chart }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          KNOWN_DIGEST: ${{ steps.version.outputs.chart_digest }}
+        run: |
+          if [ -n "$KNOWN_DIGEST" ]; then echo "digest=$KNOWN_DIGEST" >> "$GITHUB_OUTPUT"; exit 0; fi
+          helm package "deploy/helm/$SERVICE" --version "$CHART" --app-version "$TAG"
+          helm push "$SERVICE-$CHART.tgz" "oci://$REGISTRY/charts" 2>&1 | tee push.log
+          digest=$(grep -o 'sha256:[0-9a-f]\{64\}' push.log | head -1)
+          [ -n "$digest" ] || { echo "no digest in helm push output"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - id: refs
+        name: Pin the released artifacts by digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest || steps.version.outputs.image_digest }}
+          IMAGE: ${{ steps.version.outputs.image }}
+          CHART_REPO: ${{ steps.version.outputs.chart_repo }}
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          echo "image=$IMAGE@$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "chart=$CHART_REPO@$CHART_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: SBOM of the image (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ steps.refs.outputs.image }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+          upload-artifact: true
+
+      - name: Sign the image and the chart, attach the SBOM (cosign keyless)
+        env:
+          IMAGE_REF: ${{ steps.refs.outputs.image }}
+          CHART_REF: ${{ steps.refs.outputs.chart }}
+        run: |
+          signed() { cosign verify --certificate-identity "$SIGNER" --certificate-oidc-issuer "$SIGNER_ISSUER" "$1" >/dev/null 2>&1; }
+          for ref in "$IMAGE_REF" "$CHART_REF"; do
+            signed "$ref" && echo "already signed: $ref" || cosign sign --yes "$ref"
+          done
+          attested() { cosign verify-attestation --type spdxjson --certificate-identity "$SIGNER" \
+                         --certificate-oidc-issuer "$SIGNER_ISSUER" "$IMAGE_REF" >/dev/null 2>&1; }
+          attested && echo "SBOM already attested" || cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$IMAGE_REF"
+
+      - name: Verify signatures and SBOM attestation
+        env:
+          IMAGE_REF: ${{ steps.refs.outputs.image }}
+          CHART_REF: ${{ steps.refs.outputs.chart }}
+        run: |
+          cosign verify --certificate-identity "$SIGNER" --certificate-oidc-issuer "$SIGNER_ISSUER" "$IMAGE_REF" > /dev/null
+          cosign verify --certificate-identity "$SIGNER" --certificate-oidc-issuer "$SIGNER_ISSUER" "$CHART_REF" > /dev/null
+          cosign verify-attestation --type spdxjson --certificate-identity "$SIGNER" \
+            --certificate-oidc-issuer "$SIGNER_ISSUER" "$IMAGE_REF" > /dev/null
+          echo "signatures and SBOM attestation verified"
+
+      - name: Summary
+        env:
+          IMAGE_REF: ${{ steps.refs.outputs.image }}
+          CHART_REF: ${{ steps.refs.outputs.chart }}
+          TAG: ${{ steps.version.outputs.tag }}
+          CHART: ${{ steps.version.outputs.chart }}
+        run: |
+          {
+            echo "### $SERVICE released (signed, SBOM attested)"
+            echo "- image \`$TAG\`: \`$IMAGE_REF\`"
+            echo "- chart \`$CHART\`: \`$CHART_REF\`"
+            echo "- verify: \`cosign verify --certificate-identity $SIGNER --certificate-oidc-issuer $SIGNER_ISSUER <ref>\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Promotion = a commit in the gitops repo; Argo CD pulls it. CI has no
+  # cluster credentials. The deploy key can write to the gitops repo only.
+  # Dev takes a direct commit; a production environment would get a pull
+  # request with a required review instead. Both services move in one commit,
+  # and only after every leg released and verified.
+  promote:
+    needs: release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the gitops repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: eliteGoblin/eks-gitops-demo-gitops
+          ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
+      - name: Promote to dev (bump the chart versions)
+        run: |
+          chart="0.1.${GITHUB_RUN_NUMBER}"
+          tag="${GITHUB_SHA::7}"
+          git config user.name "eks-gitops-demo release"
+          git config user.email "release@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git pull --quiet --rebase origin main
+            for service in demo-api payments-svc; do
+              file="apps/dev/$service.yaml"
+              if [ ! -f "$file" ]; then echo "::notice::$service is not deployed to dev ($file missing)"; continue; fi
+              SERVICE=$service CHART=$chart yq -i \
+                '(.spec.template.spec.sources[] | select(.chart == strenv(SERVICE)) | .targetRevision) = strenv(CHART)' "$file"
+            done
+            if git diff --quiet; then echo "dev already runs chart $chart"; exit 0; fi
+            git commit --quiet --all --message "promote chart $chart (image $tag) to dev"
+            git push --quiet origin HEAD:main && { echo "promoted chart $chart (image $tag) to dev"; exit 0; }
+            git reset --quiet --hard origin/main
+          done
+          echo "could not push the promotion commit"; exit 1

@@ -1,0 +1,153 @@
+# With the default in-memory store each pod has its own data, so keep one
+# replica; with database.enabled the API is stateless and can scale out
+# (autoscaling below then owns the replica count and this value is ignored).
+replicaCount: 1
+
+image:
+  repository: demo-api
+  tag: "" # defaults to the chart's appVersion, which CI sets to the image tag
+  pullPolicy: IfNotPresent
+
+# Non-secret runtime config, rendered into a ConfigMap and loaded with envFrom.
+# Defaults are production-safe: development features are explicit opt-ins.
+config:
+  oidcIssuer: https://auth.frankbluemind.com/realms/demo
+  oidcAudience: demo-api
+  env: prod # prod requires an https issuer; dev allows a local http Keycloak
+  playgroundEnabled: false # serve /playground (GraphiQL with login)
+  introspectionEnabled: false # allow __schema queries (GraphiQL needs it)
+  # off | apq (Automatic Persisted Queries: a client may send a known document's
+  # hash; any document still runs) | allowlist (only the trusted documents in
+  # persisted/queries.json run: the posture for first-party mobile/portal clients).
+  persistedQueries: apq
+  port: "8082"
+  trustProxy: false # true behind the ALB, so rate limiting keys on the real client IP
+  # true behind Cloudflare Tunnel: rate limiting keys on CF-Connecting-IP. Enable
+  # only after the ALB is retired and the NetworkPolicy makes cloudflared the only
+  # peer (any other peer can forge the header). Never together with trustProxy.
+  trustCfConnectingIp: false
+  corsAllowedOrigins: [] # same-origin pages need none
+  rateLimitRps: 20
+  rateLimitBurst: 40
+  oidcAllowedClients: [] # OIDC clients (azp) whose tokens are accepted; empty accepts any
+
+# Postgres store. Off by default (in-memory demo data). When enabled the API
+# runs with STORE=postgres, reads DATABASE_URL from an existing Secret (e.g.
+# one created by External Secrets), and a migration Job runs `api migrate`
+# before every install/upgrade (Helm hook; Argo CD runs it as PreSync).
+database:
+  enabled: false
+  existingSecret: "" # required when enabled
+  urlKey: DATABASE_URL # key of the libpq connection URL in that Secret
+  # Pool size per pod. (autoscaling.maxReplicas + rollout.maxSurge) x
+  # (maxConns + 1 events listener) + the other clients (Keycloak, Grafana, the
+  # migrate Job) must stay inside the database's connection limit (dev budget:
+  # gitops/values/dev/demo-api.yaml).
+  maxConns: 6
+  # Load the demo data set (`api migrate --seed`); a real environment keeps this off.
+  seed: false
+  # Create the database when it is missing (`api migrate --create-db`): dev only.
+  createDatabase: false
+  # Roll the pods when the Secret changes (Reloader must be installed).
+  reloadOnSecretChange: true
+  migrate:
+    enabled: true
+    backoffLimit: 6 # the database may still be starting on first install
+    activeDeadlineSeconds: 600
+
+# Approving a claim pays it through payments-svc, with demo-api's own
+# client-credentials token (Keycloak client demo-api-svc), never the user's.
+# Off by default: approvals then leave claims unpaid.
+payments:
+  enabled: false
+  url: http://payments-svc:8083 # payments-svc base URL (its Service in this namespace)
+  tokenUrl: "" # empty: the issuer's token endpoint
+  clientId: demo-api-svc
+  existingSecret: "" # Secret with the client secret; required when enabled
+  secretKey: clientSecret
+  reloadOnSecretChange: true # roll the pods when the secret rotates (Reloader)
+
+# Demo of secret delivery and rotation (docs: "Secrets"): the partner API key
+# from Secrets Manager via external-secrets, delivered two ways. Empty names
+# turn each delivery off.
+#   envSecret  → PARTNER_API_KEY; fixed until a restart, so Reloader rolls the
+#                pods when this Secret changes.
+#   fileSecret → a file under mountPath (whole volume, never subPath, so the
+#                kubelet can swap it); the API re-reads it without a restart.
+#                Deliberately NOT watched by Reloader.
+partnerKey:
+  envSecret: ""
+  fileSecret: ""
+  key: api_key # key in both Secrets
+  mountPath: /var/run/secrets/partner
+
+# OpenTelemetry traces and metrics, sent over OTLP/gRPC to a collector. An
+# empty endpoint turns exporting off (local runs need no collector).
+telemetry:
+  endpoint: "" # e.g. http://otel-collector.observability.svc:4317
+  serviceName: demo-api # service.name: the X-Ray service and the Prometheus job label
+  sampleRatio: "1.0" # share of new traces kept; around 0.1 suits production traffic
+
+service:
+  type: ClusterIP
+  port: 8082
+  nodePort: null # set when type is NodePort (e.g. kind)
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: app.frankbluemind.com
+  tls: [] # e.g. [{ secretName: demo-tls, hosts: [app.frankbluemind.com] }]
+
+resources:
+  requests:
+    cpu: 100m # the HPA target is a percentage of this request
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# Horizontal scaling on CPU (needs metrics-server and database.enabled).
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 60
+  scaleDownStabilizationSeconds: 120 # short for the demo; the default is 300
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Soft spreading across zones and nodes.
+topologySpread:
+  enabled: true
+# Soft memory limit for the Go runtime: ~80% of the container limit, so the GC
+# works harder before the kernel OOM-kills the pod.
+goMemLimit: 200MiB
+
+# Graceful shutdown: Kubernetes runs preStop (the load balancer deregisters the
+# pod meanwhile), then sends SIGTERM; the app turns /readyz to 503, keeps
+# serving 3 s, then drains up to 20 s. The grace period must cover all of it.
+shutdown:
+  preStopSleepSeconds: 10
+  terminationGracePeriodSeconds: 40
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532 # mounted Secret files (partnerKey.fileSecret) belong to the app's group
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Rolling update: one surge pod at a time, never fewer ready pods than desired.
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0

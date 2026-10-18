@@ -1,0 +1,8 @@
+# A provider app submitting a claim; the idempotency key makes a retry safe.
+mutation SubmitClaim($input: SubmitClaimInput!) {
+  submitClaim(input: $input) {
+    __typename
+    ... on Claim { id status amount }
+    ... on UserError { message path }
+  }
+}

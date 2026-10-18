@@ -1,0 +1,11 @@
+image: quay.io/keycloak/keycloak:26.5.5
+hostname: https://auth.frankbluemind.com # public URL: issuer, redirects
+dbPoolMaxSize: 10 # Keycloak's default is 100; the shared db.t4g.micro allows ~80 in total
+db:
+  host: ""            # set from the cluster Secret annotation rds_endpoint
+  name: keycloak
+  masterSecretArn: "" # RDS-managed master secret (username/password), rotated by RDS
+adminSecretKey: demo/keycloak/admin # bootstrap admin for the master realm (not routed publicly)
+resources:
+  requests: { cpu: 250m, memory: 768Mi }
+  limits: { memory: 1280Mi }

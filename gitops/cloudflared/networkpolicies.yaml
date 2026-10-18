@@ -1,0 +1,134 @@
+# The Cloudflare Tunnel is the only ingress. Each origin admits the cloudflared
+# pods, plus the in-cluster callers listed here, and nothing else. The ALB and
+# its allow-all fallback policies were removed on 2026-10-18. argocd-server is
+# the exception: the Argo CD chart's own policy (Terraform, infra/argocd) still
+# admits every in-cluster pod (app repo issue #53).
+#
+# cloudflared only dials out, so nothing may connect to it. This also keeps its
+# metrics port (pprof, /config, diagnostics) away from other pods. The kubelet's
+# probes still arrive: the VPC CNI policy agent admits traffic from the node.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-ingress
+  namespace: cloudflared
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# The tunnel's four origins: the cloudflared pods may connect on the one
+# container port each route reaches (the Service's target port). Ports only, no
+# L7: which paths are public is the tunnel route's job (Terraform).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: demo-api-from-cloudflared
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: demo-api, app.kubernetes.io/instance: demo-api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cloudflared } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: cloudflared } }
+      ports: [{ port: 8082, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-from-cloudflared
+  namespace: keycloak
+spec:
+  podSelector:
+    matchLabels: { app: keycloak }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cloudflared } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: cloudflared } }
+      ports: [{ port: 8080, protocol: TCP }] # not the management port 9000
+---
+# Keycloak's in-cluster callers that do not come through the tunnel: the
+# realm-as-code Jobs use the admin API on the Service URL.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-from-realm-jobs
+  namespace: keycloak
+spec:
+  podSelector:
+    matchLabels: { app: keycloak }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: batch.kubernetes.io/job-name
+                operator: In
+                values: [keycloak-config, keycloak-config-cloudflare-access]
+      ports: [{ port: 8080, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-server-from-cloudflared
+  namespace: argocd
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: argocd-server, app.kubernetes.io/instance: argocd }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cloudflared } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: cloudflared } }
+      ports: [{ port: 8080, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-from-cloudflared
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: grafana, app.kubernetes.io/instance: grafana }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cloudflared } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: cloudflared } }
+      ports: [{ port: 3000, protocol: TCP }]
+---
+# The e2e runner calls demo-api directly: the suite's cross-pod WebSocket check
+# dials two pods' IPs. scripts/e2e/run-in-cluster.sh labels its pod e2e=runner;
+# an ad hoc probe pod that needs direct access carries the same label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: demo-api-from-e2e-runner
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: demo-api, app.kubernetes.io/instance: demo-api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { e2e: runner } }
+      ports: [{ port: 8082, protocol: TCP }]
+---
+# The e2e runner reads Prometheus through Grafana's datasource proxy
+# (http://grafana.observability.svc, e2e TC-E).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-from-e2e-runner
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: grafana, app.kubernetes.io/instance: grafana }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: demo } }
+          podSelector: { matchLabels: { e2e: runner } }
+      ports: [{ port: 3000, protocol: TCP }]

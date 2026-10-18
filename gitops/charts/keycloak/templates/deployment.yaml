@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels: { app: keycloak }
+  annotations:
+    secret.reloader.stakater.com/reload: keycloak-db # restart when RDS rotates the password
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: keycloak } }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: keycloak
+          image: {{ .Values.image }}
+          args: ["start"] # production mode
+          env:
+            - { name: KC_HOSTNAME, value: {{ .Values.hostname | quote }} }
+            - { name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true" } # in-cluster callers may use the Service URL
+            - { name: KC_HTTP_ENABLED, value: "true" } # TLS ends at the Cloudflare edge; cloudflared connects over HTTP
+            - { name: KC_PROXY_HEADERS, value: xforwarded }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            - { name: KC_DB, value: postgres }
+            - { name: KC_DB_POOL_MAX_SIZE, value: {{ .Values.dbPoolMaxSize | quote }} } # RDS connection budget
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://{{ required "db.host" .Values.db.host }}:5432/{{ .Values.db.name }}?sslmode=require"
+            - name: KC_DB_USERNAME
+              valueFrom: { secretKeyRef: { name: keycloak-db, key: username } }
+            - name: KC_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-db, key: password } }
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: username } }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+            - { name: JAVA_OPTS_APPEND, value: "-XX:MaxRAMPercentage=70" }
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          startupProbe:
+            httpGet: { path: /health/started, port: management }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health/live, port: management }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }

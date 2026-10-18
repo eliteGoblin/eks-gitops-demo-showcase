@@ -1,0 +1,105 @@
+name: tf-plan
+# Pull requests that touch Terraform: static checks for every root, and a
+# read-only plan (no state lock, no writes) posted as one sticky PR comment.
+# The argocd root is checked but not planned here: its Helm/Kubernetes
+# providers would need to read in-cluster Secrets, which the PR role must
+# never do; its plan shows up in tf-apply on main instead. The cloudflare root
+# likewise: planning it needs the edit-capable Cloudflare API token, and its
+# state holds secret values, so its leg runs offline checks with no AWS
+# credentials (init without the backend) and tf-apply plans it on main.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - infra/**
+      - .tflint.hcl
+      - scripts/ci/tf.sh
+      - .github/workflows/tf-plan.yaml
+permissions:
+  contents: read
+concurrency:
+  group: tf-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+env:
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC → AWS role ci-terraform-plan (ReadOnlyAccess, secret reads denied)
+    strategy:
+      fail-fast: false
+      matrix:
+        root: [bootstrap, eks, argocd, cloudflare]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.64.0
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: matrix.root != 'cloudflare'
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: fmt, init, validate, tflint, Trivy config (report-only)
+        run: scripts/ci/tf.sh check ${{ matrix.root }}
+      - name: Plan (read-only, no lock)
+        if: matrix.root != 'argocd' && matrix.root != 'cloudflare'
+        run: scripts/ci/tf.sh plan ${{ matrix.root }}
+      - name: Note why argocd is not planned on pull requests
+        if: matrix.root == 'argocd'
+        run: |
+          printf '### `infra/argocd`: plan\n\nChecked only. Planning this root needs in-cluster Secret reads (Helm release state), which the pull-request role is denied; the plan is shown by `tf-apply` on `main` before it applies.\n' \
+            | tee argocd.summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Note why cloudflare is not planned on pull requests
+        if: matrix.root == 'cloudflare'
+        run: |
+          printf '### `infra/cloudflare`: plan\n\nChecked only. Planning this root needs the edit-capable Cloudflare API token, which pull requests never get, and its state holds secret values the pull-request role may not read; the plan is shown by `tf-apply` on `main` before it applies.\n' \
+            | tee cloudflare.summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: tf-plan-${{ matrix.root }}
+          path: ${{ matrix.root }}.summary.md
+          if-no-files-found: ignore
+
+  comment:
+    needs: plan
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read # download this run's summary artifacts
+      pull-requests: write
+    steps:
+      - name: Post one sticky comment with every root's result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RESULT: ${{ needs.plan.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'tf-plan-*' --dir summaries || true
+          marker='<!-- tf-plan -->'
+          {
+            echo "$marker"
+            echo "## Terraform plan ($RESULT)"
+            echo
+            for root in bootstrap eks argocd cloudflare; do
+              f="summaries/tf-plan-$root/$root.summary.md"
+              if [ -f "$f" ]; then cat "$f"; else echo "### \`infra/$root\`"; echo; echo "_No summary: the job failed before planning. See the run._"; fi
+              echo
+            done
+            echo "[Run]($RUN_URL) · summaries list resource addresses and actions only; attribute values are never posted."
+          } > comment.md
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@comment.md >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@comment.md >/dev/null
+          fi

@@ -1,0 +1,13 @@
+# The Keycloak client cloudflare-access, imported on its own: the main realm
+# import (config/keycloak) never depends on a Cloudflare secret, so Phase 8 can
+# only break Phase 8. A one-client realm file becomes a ConfigMap, and a
+# PostSync Job runs keycloak-config-cli against Keycloak's in-cluster admin API.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: keycloak
+resources:
+  - cloudflare-access-client-secret.yaml
+  - job.yaml
+configMapGenerator:
+  - name: keycloak-realm-cloudflare-access
+    files: [realm-cloudflare-access.yaml]

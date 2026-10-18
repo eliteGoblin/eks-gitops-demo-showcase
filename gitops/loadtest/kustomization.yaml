@@ -1,0 +1,27 @@
+# Copied from the app repo's loadtest/ (the source of truth) with the dev
+# settings: the public URL, so the traffic goes through Cloudflare like a user's,
+# and 100 virtual users held for 3 minutes (enough to take the HPA from 2 to 6).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - externalsecret.yaml
+  - job.yaml
+configMapGenerator:
+  - name: k6-script
+    files:
+      - graphql.js
+generatorOptions:
+  disableNameSuffixHash: true
+patches:
+  - target: {kind: Job, name: load-generator}
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: https://app.frankbluemind.com
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: "100"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: PEAK_DURATION, value: "3m"}

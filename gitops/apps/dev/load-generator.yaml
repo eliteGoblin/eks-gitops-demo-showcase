@@ -1,0 +1,26 @@
+# The "fake load" demo: a k6 Job that drives GraphQL traffic at the public
+# URL for ~3 minutes, so the HPA can be watched scaling demo-api 2 -> 6 pods.
+# No automated sync: pressing "Sync" in the Argo CD UI (zhaolin.sun; guests
+# are read-only) or `argocd app sync load-generator` starts one run, because
+# the Job is a Sync hook that is re-created on every sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: load-generator
+  namespace: argocd
+  # Last wave: this app is synced by hand, so its "Missing" health must not hold
+  # back the other apps in the app-of-apps.
+  annotations: { argocd.argoproj.io/sync-wave: "9" }
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+    targetRevision: main
+    path: loadtest
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  # Manual sync only, so no syncPolicy at all. Never write `syncPolicy: {}`:
+  # Argo CD's application controller deletes an empty syncPolicy from the live
+  # object, so the parent `apps` would see git != live, go OutOfSync and
+  # re-apply it, forever.

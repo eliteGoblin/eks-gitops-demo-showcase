@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "demo-api.fullname" . }}
+  labels:
+    {{- include "demo-api.labels" . | nindent 4 }}
+  {{- with include "demo-api.reloadSecrets" . }}
+  annotations:
+    # Reloader rolls the pods when these credentials rotate.
+    secret.reloader.stakater.com/reload: {{ . | quote }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  # One extra pod at a time and none removed before its replacement is ready:
+  # the surge pod's connections are part of the database connection budget.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.rollout.maxSurge }}
+      maxUnavailable: {{ .Values.rollout.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "demo-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "demo-api.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when the config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.shutdown.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.topologySpread.enabled }}
+      # Spread replicas across zones and nodes (soft: a small cluster must still schedule).
+      topologySpreadConstraints:
+        {{- range list "topology.kubernetes.io/zone" "kubernetes.io/hostname" }}
+        - maxSkew: 1
+          topologyKey: {{ . }}
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "demo-api.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "demo-api.fullname" . }}
+          env:
+            - name: GOMEMLIMIT
+              value: {{ .Values.goMemLimit | quote }}
+            {{- if .Values.database.enabled }}
+            - name: DB_MAX_CONNS
+              value: {{ .Values.database.maxConns | quote }}
+            {{- end }}
+            {{- include "demo-api.databaseEnv" . | nindent 12 }}
+            {{- include "demo-api.paymentsEnv" . | nindent 12 }}
+            {{- include "demo-api.partnerEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port | int }}
+          # The server listens at once and discovers the identity provider in the
+          # background, so liveness never waits for Keycloak; the startup probe
+          # still allows a slow cold start. Liveness checks the process only;
+          # readiness (/readyz) also checks the database and the JWKS.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            # Longer than the handler's own 3s bound, so the handler answers first.
+            timeoutSeconds: 4
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              sleep: # native action (Kubernetes 1.30+): distroless has no shell
+                seconds: {{ .Values.shutdown.preStopSleepSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.partnerKey.fileSecret }}
+          volumeMounts:
+            # The whole volume (no subPath), so a rotation reaches the running pod.
+            - name: partner-key
+              mountPath: {{ $.Values.partnerKey.mountPath }}
+              readOnly: true
+          {{- end }}
+      {{- with .Values.partnerKey.fileSecret }}
+      volumes:
+        - name: partner-key
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440 # owner and fsGroup (the app) only
+      {{- end }}

@@ -1,0 +1,15 @@
+# Realm as code: the realm file becomes a ConfigMap, and a PostSync Job runs
+# keycloak-config-cli against Keycloak's in-cluster admin API (never public).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: keycloak
+resources:
+  - argocd-client-secret.yaml
+  - load-generator-client-secret.yaml
+  - grafana-client-secret.yaml
+  - demo-api-svc-client-secret.yaml
+  - user-passwords.yaml
+  - job.yaml
+configMapGenerator:
+  - name: keycloak-realm
+    files: [realm.yaml]

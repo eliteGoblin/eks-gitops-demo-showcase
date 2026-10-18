@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-secrets
+description: demo-api database credentials for the demo namespace, synced from the RDS-managed secret by external-secrets.
+type: application
+version: 0.1.0
+appVersion: "1"

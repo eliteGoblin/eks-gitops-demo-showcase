@@ -1,0 +1,30 @@
+# Installed on every cluster whose Argo CD cluster Secret has label enable_reloader=true.
+# Values marked {{...}} come from that Secret's annotations (Terraform outputs).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: reloader
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_reloader: "true" } }
+  template:
+    metadata:
+      name: "reloader"
+    spec:
+      project: default
+      source:
+        repoURL: https://stakater.github.io/stakater-charts
+        chart: reloader
+        targetRevision: "2.2.18"
+        helm:
+          releaseName: reloader
+          valuesObject:
+            reloader: { watchGlobally: true }
+      destination: { server: "{{.server}}", namespace: reloader }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

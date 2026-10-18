@@ -1,0 +1,85 @@
+name: tf-apply
+# Terraform on main: plan every root with -detailed-exitcode, in dependency
+# order (bootstrap → eks → argocd → cloudflare), and apply the ones that
+# changed, one run at a time. Every run plans all roots: a change to one root
+# can alter another's inputs through remote state, and a queued run that only
+# looked at its own diff could otherwise skip roots for good. Credentials come
+# from GitHub OIDC (role ci-terraform; its trust policy names this workflow
+# file on main and nothing else). The S3 lockfile serializes this against
+# laptop applies (tf.sh waits up to 10 minutes for it). The cloudflare root also
+# needs the Cloudflare API token: read from Secrets Manager in the step below
+# and masked before use; pull requests never get it.
+#
+# Auto-apply switch: pushes apply only when the repository variable
+# TF_AUTO_APPLY is "true"; otherwise they plan and the summary says so. While
+# several branches still apply roots from laptops, an apply from main would
+# revert whatever is applied but not yet merged. Flip the variable when that
+# phase is over. workflow_dispatch applies unless plan_only is set; plan_only
+# always wins, whatever the variable says.
+on:
+  push:
+    branches: [main]
+    paths:
+      - infra/**
+      - scripts/ci/tf.sh
+      - .github/workflows/tf-apply.yaml
+  workflow_dispatch:
+    inputs:
+      roots:
+        description: Roots to run, comma-separated and in any order (bootstrap,eks,argocd,cloudflare)
+        default: bootstrap,eks,argocd,cloudflare
+        type: string
+      plan_only:
+        description: Plan only, do not apply
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: tf-apply
+  cancel-in-progress: false
+env:
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Plan every root, apply what changed
+        env:
+          EVENT: ${{ github.event_name }}
+          ROOTS: ${{ inputs.roots || 'bootstrap,eks,argocd,cloudflare' }}
+          APPLY: ${{ (github.event_name == 'workflow_dispatch' && !inputs.plan_only) || (github.event_name == 'push' && vars.TF_AUTO_APPLY == 'true') }}
+        run: |
+          if [ "$APPLY" = true ]; then
+            mode=apply
+          else
+            mode=plan
+            if [ "$EVENT" = workflow_dispatch ]; then reason="plan_only was requested"
+            else reason="auto-apply is off (repository variable TF_AUTO_APPLY != true); run this workflow from the Actions tab to apply"; fi
+            echo "_Plan only: $reason._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The cloudflare root's provider reads CLOUDFLARE_API_TOKEN (edit rights on
+          # the zone, DNS, the tunnel and Access). Only this step holds it, masked
+          # before anything can print it. If it cannot be read, the AWS roots still
+          # run first and tf.sh then fails the cloudflare root (no silent skip).
+          case ",$ROOTS," in
+            *,cloudflare,*)
+              if CLOUDFLARE_API_TOKEN=$(aws secretsmanager get-secret-value --secret-id demo/cloudflare/api-token --query SecretString --output text); then
+                echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+                export CLOUDFLARE_API_TOKEN
+              else
+                echo "::error::Could not read demo/cloudflare/api-token; the cloudflare root will fail."
+              fi ;;
+          esac
+          scripts/ci/tf.sh apply-roots "$ROOTS" "$mode"

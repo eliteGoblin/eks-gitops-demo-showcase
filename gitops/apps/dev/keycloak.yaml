@@ -1,0 +1,35 @@
+# Keycloak (wave 0 inside apps): production mode, database on RDS. Endpoint
+# and secret ARN come from the cluster Secret (Terraform outputs).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: keycloak
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev}}
+  template:
+    metadata:
+      name: keycloak
+      annotations: {argocd.argoproj.io/sync-wave: "0"}
+    spec:
+      project: default
+      source:
+        repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+        targetRevision: main
+        path: charts/keycloak
+        helm:
+          valuesObject:
+            hostname: 'https://auth.{{index .metadata.annotations "domain"}}'
+            db:
+              host: '{{index .metadata.annotations "rds_endpoint"}}'
+              masterSecretArn: '{{index .metadata.annotations "rds_master_secret_arn"}}'
+      destination: {server: "{{.server}}", namespace: keycloak}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true]

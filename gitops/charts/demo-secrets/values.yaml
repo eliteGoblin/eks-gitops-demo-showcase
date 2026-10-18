@@ -1,0 +1,5 @@
+db:
+  host: ""            # RDS endpoint, from the cluster Secret annotation rds_endpoint
+  name: demoapi       # created by `api migrate` on first run
+  masterSecretArn: "" # RDS-managed master secret (username/password), rotated by RDS
+  sslmode: require    # verify-full needs the RDS CA bundle in the image (phase notes)

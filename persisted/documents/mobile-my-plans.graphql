@@ -1,0 +1,16 @@
+# A first-party mobile app's home screen: the participant's plans and budgets.
+query MyPlans {
+  me {
+    participant {
+      id
+      givenName
+      plans {
+        id
+        status
+        startDate
+        endDate
+        budgets { category allocated spent remaining }
+      }
+    }
+  }
+}

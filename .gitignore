@@ -1,0 +1,36 @@
+# Go build outputs
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local environment
+.env
+.env.*
+*.log
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+tfplan.bin
+crash.log
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Private notes (never committed)
+/gitignore/
+
+# Local outputs of scripts/ci/tf.sh (make tf-plan)
+*.summary.md
+trivy-config-*.json
+
+# Browser check dependencies (scripts/browser)
+node_modules/
+package-lock.json

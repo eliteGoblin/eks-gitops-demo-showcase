@@ -1,0 +1,8 @@
+{
+  "name": "browser-check",
+  "private": true,
+  "description": "Real-browser check of the demo pages: CSP violations, PKCE login, GraphiQL.",
+  "dependencies": {
+    "puppeteer-core": "24.4.0"
+  }
+}

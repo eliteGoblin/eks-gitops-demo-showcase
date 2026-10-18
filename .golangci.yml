@@ -1,0 +1,23 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - gosec      # Go SAST
+    - errorlint
+    - bodyclose
+    - noctx
+    - misspell
+  exclusions:
+    generated: strict
+    paths:
+      - internal/adapter/graphql/generated
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]
+formatters:
+  enable: [gofmt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/eliteGoblin/eks-gitops-demo]

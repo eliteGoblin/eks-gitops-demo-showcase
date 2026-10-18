@@ -1,0 +1,30 @@
+# One client of realm "demo", imported by the Job next to this file. Nothing
+# else of the realm is listed, so nothing else changes (and every managed type
+# is no-delete). Cloudflare Access logs people in here, with Keycloak as its
+# OIDC identity provider, before letting them on to argocd. and grafana.
+realm: demo
+clients:
+  - clientId: cloudflare-access
+    name: Cloudflare Access (confidential, Authorization Code; Keycloak is its identity provider)
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: "$(env:CLOUDFLARE_ACCESS_CLIENT_SECRET)"
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    redirectUris:
+      - https://eksgitops.cloudflareaccess.com/cdn-cgi/access/callback
+    # Only what Access needs, in every token whatever it requests: sub (basic),
+    # email (Access requires the claim), profile and groups (the realm's shared
+    # group-membership scope, also in the ID token). No role mappings, and no
+    # optional scopes such as offline_access.
+    fullScopeAllowed: false
+    defaultClientScopes:
+      - basic
+      - profile
+      - email
+      - groups
+    optionalClientScopes: []

@@ -1,0 +1,35 @@
+# The Keycloak client cloudflare-access (wave 3): Cloudflare Access logs people
+# in through it. Its own keycloak-config-cli Job imports it, so the realm import
+# (keycloak-config) never waits for a Cloudflare secret. Until Terraform has
+# created demo/keycloak/cloudflare-access, the sync fails at the ExternalSecret
+# and retries; an ApplicationSet, so that never gates the app of apps.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: keycloak-cloudflare-access
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev}}
+  template:
+    metadata:
+      name: keycloak-cloudflare-access
+      annotations: {argocd.argoproj.io/sync-wave: "3"}
+    spec:
+      project: default
+      source:
+        repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+        targetRevision: main
+        path: config/keycloak-cloudflare-access
+      destination: {server: "{{.server}}", namespace: keycloak}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        # Until the secret exists; each attempt only re-applies this small app.
+        retry:
+          limit: -1
+          backoff: {duration: 1m, factor: 2, maxDuration: 15m}

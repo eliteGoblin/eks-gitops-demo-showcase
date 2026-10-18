@@ -1,0 +1,56 @@
+# Installed on every cluster whose Argo CD cluster Secret has label enable_observability=true.
+# Fluent Bit (AWS build) as a DaemonSet: container logs → CloudWatch Logs, one log group
+# (Terraform-owned, 7-day retention), one stream per namespace/pod/container, JSON
+# log lines parsed so trace_id and request_id become fields.
+# Values marked {{...}} come from the cluster Secret's annotations (Terraform outputs).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: fluent-bit
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: { matchLabels: { enable_observability: "true" } }
+  template:
+    metadata:
+      name: "fluent-bit"
+    spec:
+      project: default
+      source:
+        repoURL: https://aws.github.io/eks-charts
+        chart: aws-for-fluent-bit
+        targetRevision: "0.2.0"
+        helm:
+          releaseName: fluent-bit
+          valuesObject:
+            fullnameOverride: fluent-bit
+            serviceAccount: { create: true, name: fluent-bit } # Pod Identity: write to the apps log group
+            resources:
+              requests: { cpu: 20m, memory: 64Mi }
+              limits: { memory: 160Mi }
+            input:
+              # Application namespaces only; cluster plumbing stays out of the log group.
+              path: "/var/log/containers/*_demo_*.log,/var/log/containers/*_keycloak_*.log,/var/log/containers/*_observability_*.log,/var/log/containers/*_argocd_*.log"
+            filter:
+              mergeLog: "On"   # JSON log lines become fields under "data" (trace_id, request_id, …)
+              keepLog: "Off"   # don't also keep the raw line
+            cloudWatchLogs:
+              enabled: true
+              region: '{{index .metadata.annotations "aws_region"}}'
+              logGroupName: '{{index .metadata.annotations "apps_log_group"}}'
+              logStreamPrefix: "k8s." # required by the plugin; the template below names the streams
+              logStreamTemplate: "$kubernetes['namespace_name'].$kubernetes['pod_name'].$kubernetes['container_name']"
+              autoCreateGroup: false
+            cloudWatch: { enabled: false }
+            firehose: { enabled: false }
+            kinesis: { enabled: false }
+            elasticsearch: { enabled: false }
+            opensearch: { enabled: false }
+            s3: { enabled: false }
+      destination: { server: "{{.server}}", namespace: observability }
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

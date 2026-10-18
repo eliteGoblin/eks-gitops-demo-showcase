@@ -1,0 +1,51 @@
+# DEV-ONLY Postgres for the kind cluster: one pod, data in an emptyDir (lost
+# when the pod goes), a fixed password. EKS uses RDS instead.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-db
+type: Opaque
+stringData:
+  DATABASE_URL: postgres://demo:demo@postgres:5432/demo?sslmode=disable
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: Never # preloaded with `kind load`
+          env:
+            - { name: POSTGRES_USER, value: demo }
+            - { name: POSTGRES_PASSWORD, value: demo }
+            - { name: POSTGRES_DB, value: demo }
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "demo", "-d", "demo"]
+            periodSeconds: 2
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          emptyDir: {}

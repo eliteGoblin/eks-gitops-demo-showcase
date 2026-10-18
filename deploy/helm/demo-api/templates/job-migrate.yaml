@@ -1,0 +1,55 @@
+{{- if and .Values.database.enabled .Values.database.migrate.enabled }}
+# Applies the database migrations before the new pods start. Helm runs it as a
+# pre-install/pre-upgrade hook; Argo CD maps those hooks to PreSync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "demo-api.fullname" . }}-migrate
+  labels:
+    {{- include "demo-api.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.database.migrate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.database.migrate.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      # Deliberately NOT the Deployment's selector labels: the Service must
+      # never route traffic to the migration pod.
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}-migrate
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # --seed loads the demo data set; a real environment runs the schema only.
+          # --create-db creates a missing database (dev only: elsewhere a mistyped
+          # name must fail the Job, not create an empty database).
+          args: ["migrate"{{- if .Values.database.seed }}, "--seed"{{- end }}{{- if .Values.database.createDatabase }}, "--create-db"{{- end }}]
+          env:
+            # The same validated configuration as the API (the hook runs before
+            # the chart's ConfigMap exists on first install, so set it inline).
+            - name: STORE
+              value: postgres
+            - name: ENV
+              value: {{ .Values.config.env | quote }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.config.oidcIssuer | quote }}
+            - name: DB_MAX_CONNS
+              value: "2"
+            {{- include "demo-api.databaseEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+{{- end }}

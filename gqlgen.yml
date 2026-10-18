@@ -1,0 +1,82 @@
+schema:
+  - internal/adapter/graphql/schema/*.graphqls
+exec:
+  filename: internal/adapter/graphql/generated/generated.go
+  package: generated
+model:
+  filename: internal/adapter/graphql/model/models_gen.go
+  package: model
+resolver:
+  layout: follow-schema
+  dir: internal/adapter/graphql
+  package: graphql
+  filename_template: "{name}.resolvers.go"
+models:
+  ID:
+    model:
+      - github.com/99designs/gqlgen/graphql.ID
+  Int:
+    model:
+      - github.com/99designs/gqlgen/graphql.Int
+  # Scalars marshal in the adapter so the domain stays free of GraphQL code.
+  Date:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/scalars.Date
+  Money:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/scalars.Money
+  PlanStatus:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.PlanStatus
+  SupportCategory:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.Category
+  ClaimStatus:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.ClaimStatus
+  # Node, Party and SearchResult are empty Go interfaces: their members include
+  # domain entities, which must not carry GraphQL marker methods.
+  Node:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/model.Node
+  Party:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/model.Party
+  SearchResult:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/model.SearchResult
+  Participant:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.Participant
+    fields:
+      plans: { resolver: true }
+      memberNumber: { fieldName: SchemeNumber }
+      displayName: { resolver: true }
+  Plan:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.Plan
+    fields:
+      participant: { resolver: true }
+      budgets: { resolver: true }
+      claims: { resolver: true }
+  SupportBudget:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.Budget
+  Provider:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.Provider
+    fields:
+      displayName: { fieldName: Name }
+  # Claim is wrapped in the adapter because union membership needs marker methods.
+  Claim:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/model.Claim
+    fields:
+      plan: { resolver: true }
+      provider: { resolver: true }
+      submittedAt: { resolver: true }
+  SupportRequestStatus:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.SupportRequestStatus
+  PaymentStatus:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.PaymentStatus
+  ClaimPayment:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/domain.ClaimPayment
+    fields:
+      ref: { resolver: true }
+  SupportRequest:
+    model: github.com/eliteGoblin/eks-gitops-demo/internal/adapter/graphql/model.SupportRequest
+    fields:
+      plan: { resolver: true }
+      preferredProvider: { resolver: true }
+      bookedProvider: { resolver: true }
+      requestedBy: { resolver: true }
+      decisionReason: { resolver: true }
+      raisedAt: { resolver: true }
+      decidedAt: { resolver: true }

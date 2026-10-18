@@ -1,0 +1,7 @@
+db:
+  host: ""            # set from the cluster Secret annotation rds_endpoint
+  name: grafana       # created by the PostSync Job if missing
+  masterSecretArn: "" # RDS-managed master secret (username/password); same shortcut as Keycloak
+adminSecretKey: demo/grafana/admin # Grafana built-in admin: username, password (seeded, never in Git)
+oidcSecretKey: demo/grafana/oidc   # Keycloak client "grafana": clientSecret (seeded, never in Git)
+createDbImage: docker.io/library/postgres:17.11-alpine3.23

@@ -1,0 +1,64 @@
+# The connector. Two replicas, preferably in different zones and nodes, so a pod
+# or node can go without dropping the tunnel: each replica keeps its own
+# connections to Cloudflare's edge. It needs no Kubernetes API access, no
+# inbound traffic and no writable filesystem. The routes (hostname → Service)
+# are the tunnel's remote configuration, owned by Terraform.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+  labels: { app.kubernetes.io/name: cloudflared }
+  annotations:
+    secret.reloader.stakater.com/reload: cloudflared-token # a new token rolls the connectors
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: cloudflared }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: cloudflared }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45 # cloudflared drains in-flight requests for up to 30 s (--grace-period)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # the image's nonroot user
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app.kubernetes.io/name: cloudflared }
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app.kubernetes.io/name: cloudflared }
+      containers:
+        - name: cloudflared
+          # 2026.10.0, pinned to its multi-arch index digest (amd64 + arm64).
+          image: docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom: { secretKeyRef: { name: cloudflared-token, key: token } }
+          ports:
+            - { name: metrics, containerPort: 2000 }
+          readinessProbe: # 200 only while at least one connection to the edge is up
+            httpGet: { path: /ready, port: metrics }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe: # the process answers; reconnecting to the edge is cloudflared's own job
+            httpGet: { path: /healthcheck, port: metrics }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

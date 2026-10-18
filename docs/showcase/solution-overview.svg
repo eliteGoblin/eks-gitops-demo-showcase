@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="100%" role="img" aria-labelledby="t d">
+  <title id="t">Solution overview</title>
+  <desc id="d">Left column: the folders of this repository. Right side: the runtime on AWS behind Cloudflare. Arrows show what each folder produces, manages or verifies.</desc>
+  <style>
+    .bg{fill:#f7f8fa}
+    .card{fill:#ffffff;stroke:#dfe3e8;stroke-width:1.5}
+    .folder{fill:#ffffff;stroke:#0b5fa5;stroke-width:1.5}
+    .zone{fill:none;stroke:#9aa4b1;stroke-width:1.5;stroke-dasharray:7 5}
+    .soft{fill:#e3eef9;stroke:#0b5fa5;stroke-width:1.5}
+    .okbox{fill:#e2f3ea;stroke:#1e7f4f;stroke-width:1.5}
+    .warnbox{fill:#fff3dc;stroke:#9a5b00;stroke-width:1.5}
+    text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#1b1f24;font-size:13px}
+    .title{font-size:19px;font-weight:700}
+    .sub{font-size:13px;fill:#5b6470}
+    .hdr{font-size:14px;font-weight:700;fill:#5b6470;letter-spacing:.3px}
+    .zl{font-size:13px;font-weight:700;fill:#5b6470}
+    .b{font-size:14px;font-weight:700}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700;fill:#0b5fa5}
+    .s{font-size:12.5px;fill:#5b6470}
+    .lbl{font-size:12px;fill:#0b5fa5;font-style:italic}
+    .arr{fill:none;stroke:#0b5fa5;stroke-width:2;marker-end:url(#ah)}
+    .arr2{fill:none;stroke:#5b6470;stroke-width:1.8;marker-end:url(#ah2)}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0b5fa5"/></marker>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5b6470"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1200" height="760" rx="12"/>
+
+  <text class="title" x="30" y="36">Solution overview</text>
+  <text class="sub" x="30" y="58">Left: the folders of this repository. Right: what runs on AWS behind Cloudflare. Arrows: what a folder produces, manages or verifies.</text>
+  <text class="hdr" x="30" y="86">THIS REPOSITORY</text>
+  <text class="hdr" x="400" y="86">RUNTIME</text>
+
+  <!-- left column: folders -->
+  <rect class="folder" x="30" y="150" width="300" height="62" rx="8"/>
+  <text class="m" x="42" y="171">scripts/e2e/</text>
+  <text class="s" x="42" y="189">In-cluster end-to-end suite: 68 checks against</text>
+  <text class="s" x="42" y="204">the live hostnames (PKCE logins, payments, …)</text>
+
+  <rect class="folder" x="30" y="228" width="300" height="70" rx="8"/>
+  <text class="m" x="42" y="249">infra/</text>
+  <text class="s" x="42" y="267">Terraform roots: bootstrap, eks, argocd,</text>
+  <text class="s" x="42" y="282">cloudflare — applied by CI (tf-apply.yaml)</text>
+
+  <rect class="folder" x="30" y="330" width="300" height="70" rx="8"/>
+  <text class="m" x="42" y="351">gitops/</text>
+  <text class="s" x="42" y="369">Argo CD app of apps: bootstrap, addons, platform,</text>
+  <text class="s" x="42" y="384">apps/dev, charts, config, cloudflared, values</text>
+
+  <rect class="folder" x="30" y="416" width="300" height="70" rx="8"/>
+  <text class="m" x="42" y="437">cmd/ · internal/</text>
+  <text class="s" x="42" y="455">Go services demo-api and payments-svc, built</text>
+  <text class="s" x="42" y="470">into one image; service kit internal/platform/</text>
+
+  <rect class="folder" x="30" y="502" width="300" height="52" rx="8"/>
+  <text class="m" x="42" y="523">deploy/helm/</text>
+  <text class="s" x="42" y="541">Charts: demo-api, payments-svc (OCI, in ECR)</text>
+
+  <rect class="folder" x="30" y="570" width="300" height="52" rx="8"/>
+  <text class="m" x="42" y="591">docs/</text>
+  <text class="s" x="42" y="609">Design records (HTML pages, shown as source)</text>
+
+  <rect class="folder" x="30" y="640" width="300" height="65" rx="8"/>
+  <text class="m" x="42" y="661">.github/workflows/</text>
+  <text class="s" x="42" y="679">CI: pr, graphql-schema, release (image + chart,</text>
+  <text class="s" x="42" y="694">cosign), tf-plan, tf-apply, secrets-sync</text>
+
+  <!-- users -->
+  <rect class="card" x="585" y="96" width="190" height="40" rx="8"/>
+  <text class="b" x="597" y="121">Browser · API client</text>
+
+  <!-- Cloudflare zone -->
+  <text class="zl" x="572" y="145">Cloudflare</text>
+  <rect class="zone" x="570" y="150" width="610" height="78" rx="10"/>
+  <rect class="warnbox" x="585" y="158" width="186" height="60" rx="8"/>
+  <text class="b" x="597" y="178">DNS + TLS</text>
+  <text class="s" x="597" y="195">app. auth. argocd. grafana.</text>
+  <text class="s" x="597" y="210">proxied records at the edge</text>
+  <rect class="warnbox" x="795" y="158" width="166" height="60" rx="8"/>
+  <text class="b" x="807" y="178">Access</text>
+  <text class="s" x="807" y="195">argocd. and grafana. only</text>
+  <text class="s" x="807" y="210">login via Keycloak OIDC</text>
+  <rect class="warnbox" x="985" y="158" width="180" height="60" rx="8"/>
+  <text class="b" x="997" y="178">Tunnel</text>
+  <text class="s" x="997" y="195">the only ingress</text>
+  <text class="s" x="997" y="210">no load balancer</text>
+
+  <!-- AWS zone -->
+  <rect class="zone" x="400" y="248" width="780" height="482" rx="10"/>
+  <text class="zl" x="412" y="267">AWS ap-southeast-2 · created by Terraform (infra/)</text>
+
+  <!-- EKS zone -->
+  <rect class="zone" x="410" y="280" width="548" height="320" rx="10"/>
+  <text class="zl" x="420" y="298">EKS · deployed by Argo CD from gitops/</text>
+
+  <rect class="soft" x="700" y="290" width="180" height="44" rx="8"/>
+  <text class="b" x="712" y="308">cloudflared ×2</text>
+  <text class="s" x="712" y="324">dials out to the Tunnel</text>
+
+  <rect class="okbox" x="425" y="350" width="100" height="60" rx="8"/>
+  <text class="b" x="434" y="370">Argo CD</text>
+  <text class="s" x="434" y="387">app of apps</text>
+
+  <rect class="okbox" x="545" y="350" width="100" height="60" rx="8"/>
+  <text class="b" x="554" y="370">demo-api</text>
+  <text class="s" x="554" y="386">Go · gqlgen</text>
+  <text class="s" x="554" y="401">HPA 2–6 pods</text>
+
+  <rect class="okbox" x="665" y="350" width="100" height="60" rx="8"/>
+  <text class="b" x="674" y="370">Keycloak</text>
+  <text class="s" x="674" y="387">realm as code</text>
+
+  <rect class="okbox" x="785" y="350" width="100" height="60" rx="8"/>
+  <text class="b" x="794" y="370">Grafana</text>
+  <text class="s" x="794" y="387">Keycloak SSO</text>
+
+  <rect class="okbox" x="545" y="455" width="110" height="56" rx="8"/>
+  <text class="b" x="554" y="475">payments-svc</text>
+  <text class="s" x="554" y="492">internal only</text>
+
+  <rect class="card" x="668" y="455" width="150" height="70" rx="8"/>
+  <text class="b" x="678" y="475">External Secrets</text>
+  <text class="s" x="678" y="491">+ Reloader</text>
+  <text class="s" x="678" y="507">from Secrets Manager</text>
+
+  <rect class="card" x="830" y="455" width="122" height="70" rx="8"/>
+  <text class="b" x="838" y="475">ADOT collector</text>
+  <text class="s" x="838" y="491">Fluent Bit</text>
+  <text class="s" x="838" y="507" font-size="12">kube-state-metrics</text>
+
+  <!-- AWS managed services -->
+  <rect class="card" x="425" y="640" width="175" height="80" rx="8"/>
+  <text class="b" x="437" y="660">ECR</text>
+  <text class="s" x="437" y="677">image + OCI Helm chart</text>
+  <text class="s" x="437" y="692">cosign-signed, SBOM</text>
+
+  <rect class="card" x="620" y="640" width="180" height="80" rx="8"/>
+  <text class="b" x="632" y="660">Secrets Manager</text>
+  <text class="s" x="632" y="677">every runtime secret</text>
+  <text class="s" x="632" y="692">RDS password rotated here</text>
+
+  <rect class="card" x="808" y="640" width="172" height="80" rx="8"/>
+  <text class="b" x="820" y="660">RDS Postgres</text>
+  <text class="s" x="820" y="677">databases of demo-api,</text>
+  <text class="s" x="820" y="692">Keycloak and Grafana</text>
+  <text class="s" x="820" y="707">one shared instance</text>
+
+  <rect class="card" x="1000" y="640" width="170" height="80" rx="8"/>
+  <text class="b" x="1012" y="660">Observability</text>
+  <text class="s" x="1012" y="677">X-Ray</text>
+  <text class="s" x="1012" y="692">Managed Prometheus</text>
+  <text class="s" x="1012" y="707">CloudWatch Logs</text>
+
+  <!-- runtime arrows -->
+  <path class="arr" d="M678 136 V157"/>
+  <path class="arr" d="M771 188 H794"/>
+  <path class="arr" d="M961 188 H984"/>
+  <path class="arr" d="M1075 218 V238 H790 V289"/>
+  <path class="arr" d="M790 334 L475 349"/>
+  <path class="arr" d="M790 334 L595 349"/>
+  <path class="arr" d="M790 334 L715 349"/>
+  <path class="arr" d="M790 334 L835 349"/>
+  <path class="arr" d="M595 410 V454"/>
+  <path class="arr2" d="M470 639 V411"/>
+  <text class="lbl" x="478" y="560">pulls charts</text>
+  <path class="arr2" d="M740 639 V526"/>
+  <text class="lbl" x="748" y="585">syncs</text>
+  <path class="arr2" d="M894 601 V639"/>
+  <path class="arr2" d="M891 525 L1040 639"/>
+
+  <!-- folder arrows -->
+  <path class="arr" d="M330 188 H584"/>
+  <text class="lbl" x="457" y="181" text-anchor="middle">runs against the live hostnames</text>
+  <path class="arr" d="M330 262 H398"/>
+  <path class="arr" d="M330 240 L570 229"/>
+  <text class="lbl" x="450" y="226" text-anchor="middle">zone · Tunnel · Access</text>
+  <path class="arr" d="M330 380 H423"/>
+  <text class="lbl" x="377" y="373" text-anchor="middle">watched</text>
+  <path class="arr" d="M330 672 H423"/>
+  <text class="lbl" x="377" y="665" text-anchor="middle">release</text>
+</svg>

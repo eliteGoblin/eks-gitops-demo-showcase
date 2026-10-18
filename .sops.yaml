@@ -1,0 +1,8 @@
+# sops: which key encrypts which files. One KMS key per environment, so access
+# to dev secrets never implies access to prod ones (a prod rule would name a
+# second key that only the release approvers and ci-secrets-sync may use).
+# Edit a file with `sops secrets/dev/demo-api.enc.yaml`; only the values are
+# encrypted; keys stay readable for review (sops encrypts comments too, so explain files in secrets/README.md).
+creation_rules:
+  - path_regex: ^secrets/dev/.*\.enc\.yaml$
+    kms: arn:aws:kms:ap-southeast-2:852544369865:key/2d6997b7-fadf-412c-b3a9-73a511152073 # alias/sops-demo

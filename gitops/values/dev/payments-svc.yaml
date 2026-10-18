@@ -1,0 +1,15 @@
+# payments-svc in the public dev environment. Internal only: no Ingress, and
+# the NetworkPolicy admits demo-api pods only. It accepts client-credentials
+# tokens from Keycloak client demo-api-svc (audience payments-svc).
+image:
+  repository: 852544369865.dkr.ecr.ap-southeast-2.amazonaws.com/payments-svc
+config:
+  oidcIssuer: https://auth.frankbluemind.com/realms/demo
+  oidcAudience: payments-svc
+  allowedClients: [demo-api-svc]
+  env: prod
+# Traces continue demo-api's (one trace per approval in X-Ray).
+telemetry:
+  endpoint: http://otel-collector.observability.svc:4317
+networkPolicy:
+  enabled: true

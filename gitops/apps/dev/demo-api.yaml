@@ -1,0 +1,40 @@
+# demo-api (wave 1). Chart from ECR (OCI), values from this repo. CI promotes a
+# release by bumping targetRevision below (the chart's appVersion is the image tag).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: demo-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector: {matchLabels: {environment: dev}}
+  template:
+    metadata:
+      name: demo-api
+      annotations: {argocd.argoproj.io/sync-wave: "1"}
+    spec:
+      project: default
+      sources:
+        - repoURL: 852544369865.dkr.ecr.ap-southeast-2.amazonaws.com/charts
+          chart: demo-api
+          targetRevision: 0.1.53
+          helm:
+            valueFiles: [$values/values/dev/demo-api.yaml]
+        - repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+          targetRevision: main
+          ref: values
+      destination: {server: "{{.server}}", namespace: demo}
+      # The HPA owns the replica count (the chart omits it when autoscaling is
+      # on); never let a sync reset what the autoscaler chose.
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers: [/spec/replicas]
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true, RespectIgnoreDifferences=true]

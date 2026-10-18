@@ -1,0 +1,193 @@
+scalar Date
+scalar Money
+directive @auth(requires: [Role!]!) on FIELD_DEFINITION
+
+enum Role { PARTICIPANT NOMINEE PROVIDER AGENCY_STAFF }
+enum PlanStatus { DRAFT ACTIVE EXPIRED }
+enum SupportCategory { DAILY_LIVING THERAPY EQUIPMENT }
+enum ClaimStatus { SUBMITTED APPROVED REJECTED PAID }
+enum SupportRequestStatus { PENDING APPROVED REJECTED }
+"PENDING: requested, outcome not known yet. PAID: the payment processor accepted it (the claim is PAID). FAILED: refused or unreachable (the approval stands)."
+enum PaymentStatus { PENDING PAID FAILED }
+enum Decision { APPROVE REJECT }
+enum ClaimOrderField { SUBMITTED_AT AMOUNT }
+enum OrderDirection { ASC DESC }
+
+"""
+An object that can be fetched again by its id alone (Relay's Global Object
+Identification), with node or nodes. Ids are unique across types: records the
+API creates have UUIDv7 ids, and the reference data (participants, plans,
+providers) uses distinct prefixes. A record is returned only when the caller
+could read it through its own query.
+"""
+interface Node { id: ID! }
+
+"A person or organisation that takes part in a plan."
+interface Party { id: ID!, displayName: String! }
+
+"""
+A business rule the request broke, returned as data in a mutation's payload
+so the client can act on it. path names the input field at fault, if any.
+"""
+interface UserError { message: String!, path: [String!] }
+
+"The caller as the API sees it after verifying the access token."
+type Viewer { subject: ID!, roles: [Role!]!, participant: Participant, provider: Provider }
+
+type Participant implements Node & Party {
+  id: ID!
+  "The participant's number in the scheme."
+  memberNumber: String!
+  schemeNumber: String! @deprecated(reason: "Use memberNumber; removal after 2026-12-31")
+  "Given and family name."
+  displayName: String!
+  givenName: String!
+  familyName: String!
+  "Null when the caller may not see it (providers never do)."
+  dateOfBirth: Date
+  plans: [Plan!]!
+}
+
+type Plan implements Node {
+  id: ID!
+  participant: Participant!
+  status: PlanStatus!
+  startDate: Date!
+  endDate: Date!
+  "Providers see only the categories they are booked for."
+  budgets: [SupportBudget!]!
+  claims(first: Int = 20, after: String, status: ClaimStatus, filter: ClaimFilter, orderBy: ClaimOrder): ClaimConnection!
+}
+
+"remaining = allocated - spent; reserved is what bookings hold but have not claimed yet."
+type SupportBudget { category: SupportCategory!, allocated: Money!, spent: Money!, reserved: Money!, remaining: Money! }
+type Provider implements Node & Party { id: ID!, name: String!, abn: String!, "The provider's name." displayName: String! }
+type Claim implements Node {
+  id: ID!
+  plan: Plan!
+  provider: Provider!
+  category: SupportCategory!
+  amount: Money!
+  status: ClaimStatus!
+  serviceDate: Date!
+  "RFC 3339, UTC"
+  submittedAt: String!
+  "Null until the claim is approved with payments switched on."
+  payment: ClaimPayment
+}
+
+"The payment of an approved claim, requested from the payment processor with the claim id as idempotency key."
+type ClaimPayment { status: PaymentStatus!, "The processor's payment id, once it accepted." ref: String }
+
+"A participant (or their nominee, or agency staff) asks for a support to be funded. Approval books a provider and reserves the estimated amount."
+type SupportRequest implements Node {
+  id: ID!
+  plan: Plan!
+  category: SupportCategory!
+  description: String!
+  estimatedAmount: Money!
+  preferredProvider: Provider
+  "Username of whoever raised it."
+  requestedBy: String!
+  status: SupportRequestStatus!
+  bookedProvider: Provider
+  decisionReason: String
+  "RFC 3339, UTC"
+  raisedAt: String!
+  decidedAt: String
+}
+type ClaimConnection { edges: [ClaimEdge!]!, pageInfo: PageInfo!, totalCount: Int! }
+type ClaimEdge { cursor: String!, node: Claim! }
+type PageInfo { hasNextPage: Boolean!, endCursor: String }
+
+"Records a search term matched: participants first, then providers, then claims."
+union SearchResult = Participant | Provider | Claim
+
+"""
+Narrows a claim listing; every field is optional and they combine with AND.
+submittedAfter (inclusive) and submittedBefore (exclusive) are RFC 3339 timestamps.
+"""
+input ClaimFilter {
+  status: ClaimStatus
+  category: SupportCategory
+  providerId: ID
+  submittedAfter: String
+  submittedBefore: String
+}
+
+"""
+Sort order of a claim listing. Cursors carry the order they were issued for:
+continuing with a different order is rejected (BAD_USER_INPUT).
+"""
+input ClaimOrder { field: ClaimOrderField! = SUBMITTED_AT, direction: OrderDirection! = ASC }
+
+type Query {
+  me: Viewer!
+  "Null when the participant does not exist or the caller may not read it."
+  participant(id: ID!): Participant
+  plan(id: ID!): Plan
+  "status is kept for older clients; filter.status does the same."
+  claims(first: Int = 20, after: String, status: ClaimStatus, filter: ClaimFilter, orderBy: ClaimOrder): ClaimConnection!
+  "Any record by id, if the caller may read it (null otherwise: not found and not permitted look the same)."
+  node(id: ID!): Node
+  "Up to 50 records by id, in the same order; null where node(id) would be null."
+  nodes(ids: [ID!]!): [Node]!
+  """
+  Participants (by name or member number), providers (by name or ABN) and
+  claims (by id prefix) the caller may read. term: 2 to 100 characters; first: 1 to 50.
+  """
+  search(term: String!, first: Int = 10): [SearchResult!]!
+  "Requests the caller raised or that concern the participants it is or acts for."
+  mySupportRequests: [SupportRequest!]!
+  "The agency's work queue: every pending request, oldest first."
+  pendingSupportRequests: [SupportRequest!]! @auth(requires: [AGENCY_STAFF])
+}
+
+input SubmitClaimInput {
+  planId: ID!
+  category: SupportCategory!
+  amount: Money!
+  serviceDate: Date!
+  """
+  Makes retries safe: the same key with the same input returns the claim the
+  first request created instead of a duplicate; the same key with different
+  input is an IdempotencyKeyReusedError. Keys are scoped to the caller and kept
+  at least 24 hours. 1 to 128 characters: letters, digits, '.', '_', ':' or '-'.
+  """
+  idempotencyKey: String
+}
+type ValidationError implements UserError { field: String!, message: String!, path: [String!] }
+type BudgetExceededError implements UserError { remaining: Money!, requested: Money!, message: String!, path: [String!] }
+"The idempotency key was already used by this caller for a different request."
+type IdempotencyKeyReusedError implements UserError { message: String!, path: [String!] }
+union SubmitClaimPayload = Claim | ValidationError | BudgetExceededError | IdempotencyKeyReusedError
+union ApproveClaimPayload = Claim | ValidationError
+
+input RaiseSupportRequestInput { planId: ID!, category: SupportCategory!, description: String!, estimatedAmount: Money!, preferredProviderId: ID }
+"providerId overrides the requester's preferred provider when approving."
+input DecideSupportRequestInput { id: ID!, decision: Decision!, reason: String!, providerId: ID }
+"Separation of duties: nobody decides a request they raised."
+type SelfApprovalNotAllowedError implements UserError { message: String!, path: [String!] }
+union RaiseSupportRequestPayload = SupportRequest | ValidationError
+union DecideSupportRequestPayload = SupportRequest | ValidationError | BudgetExceededError | SelfApprovalNotAllowedError
+
+type Mutation {
+  submitClaim(input: SubmitClaimInput!): SubmitClaimPayload! @auth(requires: [PROVIDER])
+  approveClaim(id: ID!, reason: String!): ApproveClaimPayload! @auth(requires: [AGENCY_STAFF])
+  raiseSupportRequest(input: RaiseSupportRequestInput!): RaiseSupportRequestPayload! @auth(requires: [PARTICIPANT, NOMINEE, AGENCY_STAFF])
+  decideSupportRequest(input: DecideSupportRequestInput!): DecideSupportRequestPayload! @auth(requires: [AGENCY_STAFF])
+}
+
+"""
+Live updates over a websocket (graphql-transport-ws); authenticate with
+{"Authorization": "Bearer <access token>"} in connection_init. You may
+subscribe to a plan you can read; every update is re-read with your access,
+so you only ever receive records you could query. Updates end when the
+access token expires: reconnect with a fresh one.
+"""
+type Subscription {
+  "Claims on the plan as they are submitted, approved and paid."
+  claimStatusChanged(planId: ID!): Claim!
+  "Support requests on the plan as they are raised and decided."
+  supportRequestStatusChanged(planId: ID!): SupportRequest!
+}

@@ -1,0 +1,4 @@
+# Live claim status for one plan (WebSocket, graphql-transport-ws).
+subscription ClaimUpdates($planId: ID!) {
+  claimStatusChanged(planId: $planId) { id status payment { status ref } }
+}

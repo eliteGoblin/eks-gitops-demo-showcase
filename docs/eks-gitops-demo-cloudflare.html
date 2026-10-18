@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKS GitOps Demo: Cloudflare</title>
+<meta name="description" content="Optional final phase: put the existing domain behind Cloudflare (DNS, edge TLS, DDoS protection and the Free Managed Ruleset, Tunnel, Access with Keycloak as IdP). Mental models, decisions and a step-by-step migration runbook with acceptance checks.">
+<link rel="stylesheet" href="style.css">
+<style>
+:root{
+  --tf:#7048e8; --tf-soft:#efeafe; --argo:#e8590c; --argo-soft:#fff0e4; --ci:#0c8a5f; --ci-soft:#e0f5ec;
+  --ctl:#d6336c; --ctl-soft:#fdebf1; --art:#1c7ed6; --art-soft:#e6f1fc; --you:#5b6470; --you-soft:#eef1f4;
+  --cf:#b7791f; --cf-soft:#fdf3dc;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+  --cf:#f6c453; --cf-soft:#33270a;
+}}
+:root[data-theme="dark"]{
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+  --cf:#f6c453; --cf-soft:#33270a;
+}
+.dia{overflow-x:auto;margin:14px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}
+.dia svg{display:block;min-width:960px;width:100%;height:auto}
+.dia text{font-family:var(--font);fill:var(--ink)}
+.dia .h{font-size:14px;font-weight:700}
+.dia .t{font-size:12.5px;font-weight:600}
+.dia .s{font-size:11px;fill:var(--muted)}
+.dia .sw .t{font-size:11.5px}
+.dia .frame{fill:none;stroke:var(--line);stroke-width:1.5}
+.dia .cluster{fill:var(--tf-soft);fill-opacity:.35;stroke:var(--tf);stroke-width:2}
+.dia rect.tf{fill:var(--tf-soft);stroke:var(--tf)} .dia rect.argo{fill:var(--argo-soft);stroke:var(--argo)}
+.dia rect.ci{fill:var(--ci-soft);stroke:var(--ci)} .dia rect.ctl{fill:var(--ctl-soft);stroke:var(--ctl)}
+.dia rect.art{fill:var(--art-soft);stroke:var(--art)} .dia rect.you{fill:var(--you-soft);stroke:var(--you)}
+.dia rect.cf{fill:var(--cf-soft);stroke:var(--cf)}
+.dia rect.tf,.dia rect.argo,.dia rect.ci,.dia rect.ctl,.dia rect.art,.dia rect.you,.dia rect.cf{stroke-width:1.5}
+.dia .lane{stroke:none;fill-opacity:.55}
+.dia .c-tf{fill:var(--tf)} .dia .c-argo{fill:var(--argo)} .dia .c-ctl{fill:var(--ctl)} .dia .c-art{fill:var(--art)} .dia .c-you{fill:var(--you)} .dia .c-cf{fill:var(--cf)}
+.dia .flow{fill:none;stroke:var(--muted);stroke-width:1.6}
+.dia .flow-cf{fill:none;stroke:var(--cf);stroke-width:2.4}
+.dia .flow-ctl{fill:none;stroke:var(--ctl);stroke-width:1.8}
+.dia .dash{stroke-dasharray:5 4}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 4px;font-size:13.5px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:4px;border:2px solid}
+.legend .tf{background:var(--tf-soft);border-color:var(--tf)} .legend .argo{background:var(--argo-soft);border-color:var(--argo)}
+.legend .ctl{background:var(--ctl-soft);border-color:var(--ctl)} .legend .art{background:var(--art-soft);border-color:var(--art)}
+.legend .you{background:var(--you-soft);border-color:var(--you)} .legend .cf{background:var(--cf-soft);border-color:var(--cf)}
+td .tag,li .tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.tag.tf{background:var(--tf-soft);color:var(--tf)} .tag.argo{background:var(--argo-soft);color:var(--argo)}
+.tag.ci{background:var(--ci-soft);color:var(--ci)} .tag.you{background:var(--you-soft);color:var(--you)} .tag.cf{background:var(--cf-soft);color:var(--cf)}
+.card.cfnote{border-left:4px solid var(--cf);background:var(--cf-soft)}
+ul.checks{list-style:none;padding-left:4px} ul.checks li::before{content:"☐ ";color:var(--accent);font-weight:700}
+details{margin:8px 0 14px}
+summary{cursor:pointer;font-weight:600;color:var(--accent)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+ol.steps li{margin:6px 0}
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><span class="brand">eks-gitops-demo</span>
+<a href="#decision">Decision</a><a href="#today-target">Today vs target</a><a href="#models">Mental models</a><a href="#identity">Identity &amp; tokens</a><a href="#setup">Full vs partial</a><a href="#prereq">Prerequisites</a><a href="#runbook">Runbook</a><a href="#checks">Acceptance</a><a href="#gotchas">Gotchas</a><a href="#snippets">Snippets</a><a href="eks-gitops-demo.html">Platform →</a>
+</div></header>
+<main>
+<h1>Cloudflare in front of the EKS demo (optional Phase 8)</h1>
+<p class="sub">The existing domain <code>eksgitops.click</code> moves behind Cloudflare: DNS, edge TLS, DDoS protection and the Free plan's managed rules, Tunnel and Access with Keycloak as the identity provider. Design, mental models and migration runbook. Prepared 2026-10-16; updated 2026-10-17 to what <code>infra/cloudflare</code> builds (real Service names, the Access policy, the flip mechanism).</p>
+
+<div class="card note">
+<p><strong>In one paragraph:</strong> Cloudflare is the <em>last</em> phase, done only after every feature works, and on the <em>same</em> domain. It's a <strong>full switch</strong>, kept simple:</p>
+<ul>
+<li><strong>DNS:</strong> the domain's name servers move to Cloudflare.</li>
+<li><strong>Every hostname</strong> (<code>app.</code>, <code>auth.</code>, <code>argocd.</code>, <code>grafana.</code>) goes through Cloudflare's proxy (TLS, DDoS protection, the Free Managed Ruleset, and room for 5 custom rules and 1 rate-limiting rule on the Free plan) and a <strong>Tunnel</strong> that the cluster dials outward, to plain ClusterIP Services.</li>
+<li><strong>Access</strong> (login delegated to Keycloak) gates only <code>argocd.</code> and <code>grafana.</code>.</li>
+<li><strong>Retired</strong> on 2026-10-18, after a one-day fallback window: the ALB, ACM-on-ALB, the load balancer controller, and external-dns with its Route 53 records and hosted zone, so the Tunnel is now the only ingress (app #51 and the pull requests that follow it, gitops #6 onwards), and the cutover runbook below, with its <code>host_modes</code> flips and Route 53 mirror, is the record of how it got there.</li>
+<li><strong>Code changes:</strong> only the client-IP header the apps trust. Keycloak and the GraphQL API otherwise stay unchanged.</li>
+</ul>
+</div>
+
+<p><strong>Colour key:</strong></p>
+<div class="legend">
+<span><i class="cf"></i>Cloudflare (edge, Tunnel, Access)</span><span><i class="tf"></i>Terraform-managed AWS</span><span><i class="argo"></i>Workloads (Argo CD)</span><span><i class="ctl"></i>ALB (LB controller)</span><span><i class="art"></i>Identity (Keycloak)</span><span><i class="you"></i>You / browser</span>
+</div>
+
+<h2 id="decision">1. Decision</h2>
+<table>
+<tr><th></th><th>Same domain, full setup (chosen)</th><th>Second domain only for Cloudflare (considered)</th></tr>
+<tr><td>Realism</td><td>How organisations onboard: their existing domain moves behind Cloudflare</td><td>A split that real setups rarely use</td></tr>
+<tr><td>Public app protection</td><td>Every host, including <code>app.</code>/<code>auth.</code>, gets the proxy (DDoS protection, the Free Managed Ruleset, Free-plan custom and rate-limiting rules)</td><td>Only the admin tools get Cloudflare</td></tr>
+<tr><td>Things to run</td><td>One DNS provider, one record set, one domain in redirect URIs and SSO</td><td>Two of each</td></tr>
+<tr><td>Risk to the working setup</td><td>A name-server switch with a propagation window (hours, up to 24–48 h)</td><td>None</td></tr>
+<tr><td>Cost</td><td>US$0 (Cloudflare Free + Zero Trust Free)</td><td>+US$3/year</td></tr>
+</table>
+<table>
+<tr><th></th><th>Full switch: every host via Tunnel (chosen)</th><th>Hybrid: app./auth. on ALB, admin via Tunnel (alternative / interim)</th></tr>
+<tr><td>Moving parts</td><td>One ingress path; the ALB, LB-controller Ingresses, ACM-on-ALB and external-dns are retired</td><td>Two ingress paths to run and explain</td></tr>
+<tr><td>Exposure</td><td>Nothing in AWS accepts inbound traffic</td><td>A public ALB remains (must be locked to Cloudflare ranges if proxied)</td></tr>
+<tr><td>Client IP</td><td>Apps trust <code>CF-Connecting-IP</code> from <code>cloudflared</code> only; a NetworkPolicy makes it unspoofable</td><td>ALB plus proxy header handling</td></tr>
+<tr><td>Cost</td><td>About US$20/month saved (no ALB)</td><td>ALB stays</td></tr>
+<tr><td>When</td><td>Target state</td><td>Exists only during the fallback window of the rollout</td></tr>
+</table>
+<div class="card warn"><p><strong>Timing rule:</strong> run the cutover only when all features are stable, and at least several days before any demo, so propagation and rollback never overlap a demo.</p></div>
+
+<h2 id="today-target">2. Today vs target</h2>
+<div class="dia">
+<svg viewBox="0 0 1180 380" role="img" aria-labelledby="d1t">
+<title id="d1t">Left: today, Route 53 and a public ALB serve all four hosts. Right: target, Cloudflare answers DNS and proxies all four hosts through a tunnel to cloudflared and ClusterIP Services; Access gates argocd and grafana; the ALB is retired after a fallback window.</title>
+<defs>
+<marker id="d1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+<marker id="d1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--cf)"/></marker>
+</defs>
+<rect class="frame" x="8" y="8" width="576" height="364" rx="12"/><text class="h" x="24" y="30">Today (Phases 2–7)</text>
+<rect class="you" x="24" y="160" width="130" height="50" rx="8"/><text class="t" x="36" y="181">Browser</text><text class="s" x="36" y="197">any user</text>
+<rect class="tf" x="186" y="48" width="170" height="46" rx="8"/><text class="t" x="198" y="67">Route 53 zone</text><text class="s" x="198" y="83">records by external-dns</text>
+<rect class="tf" x="186" y="104" width="170" height="46" rx="8"/><text class="t" x="198" y="123">ACM certificate</text><text class="s" x="198" y="139">*.eksgitops.click on the ALB</text>
+<rect class="ctl" x="186" y="164" width="170" height="50" rx="8"/><text class="t" x="198" y="185">Public ALB</text><text class="s" x="198" y="202">HTTPS 443, all 4 hosts</text>
+<rect class="cluster" x="384" y="44" width="188" height="316" rx="12"/><text class="h c-tf" x="396" y="66">EKS</text>
+<rect class="argo" x="396" y="80" width="164" height="44" rx="8"/><text class="t" x="408" y="99">demo-api</text><text class="s" x="408" y="115">app.</text>
+<rect class="art" x="396" y="146" width="164" height="44" rx="8"/><text class="t" x="408" y="165">Keycloak</text><text class="s" x="408" y="181">auth.</text>
+<rect class="argo" x="396" y="212" width="164" height="44" rx="8"/><text class="t" x="408" y="231">Argo CD</text><text class="s" x="408" y="247">argocd. (public login page)</text>
+<rect class="argo" x="396" y="278" width="164" height="44" rx="8"/><text class="t" x="408" y="297">Grafana</text><text class="s" x="408" y="313">grafana. (public login page)</text>
+<path class="flow dash" d="M110 160 L196 96" marker-end="url(#d1a)"/><text class="s" x="86" y="120">DNS</text>
+<path class="flow" d="M154 187 H184" marker-end="url(#d1a)"/>
+<path class="flow" d="M356 182 L394 104" marker-end="url(#d1a)"/>
+<path class="flow" d="M356 186 L394 170" marker-end="url(#d1a)"/>
+<path class="flow" d="M356 192 L394 232" marker-end="url(#d1a)"/>
+<path class="flow" d="M356 198 L394 296" marker-end="url(#d1a)"/>
+
+<rect class="frame" x="596" y="8" width="576" height="364" rx="12"/><text class="h" x="612" y="30">Target (Phase 8)</text>
+<rect class="you" x="612" y="160" width="120" height="50" rx="8"/><text class="t" x="624" y="181">Browser</text><text class="s" x="624" y="197">any user</text>
+<rect class="cf" x="762" y="44" width="176" height="170" rx="10"/><text class="h c-cf" x="774" y="66">Cloudflare edge</text>
+<text class="s" x="774" y="88">DNS for the whole zone</text><text class="s" x="774" y="106">Universal SSL (apex + *.)</text><text class="s" x="774" y="124">proxy: DDoS · Free Managed</text><text class="s" x="774" y="140">Ruleset on ALL four hosts</text><text class="s" x="774" y="160">Access: argocd., grafana.</text><text class="s" x="774" y="178">(login via Keycloak; never</text><text class="s" x="774" y="194">on auth. login pages)</text>
+<rect class="ctl dash" x="762" y="268" width="176" height="56" rx="8" style="fill-opacity:.35"/><text class="t" x="774" y="290">ALB (fallback only)</text><text class="s" x="774" y="307">kept a few days, then deleted</text>
+<rect class="cluster" x="968" y="44" width="196" height="316" rx="12"/><text class="h c-tf" x="980" y="66">EKS</text>
+<rect class="cf" x="980" y="80" width="172" height="44" rx="8"/><text class="t" x="992" y="99">cloudflared ×2</text><text class="s" x="992" y="115">connector, outbound only</text>
+<rect class="argo" x="1010" y="140" width="142" height="40" rx="8"/><text class="t" x="1020" y="158">demo-api</text><text class="s" x="1020" y="173">app. · ClusterIP</text>
+<rect class="art" x="1010" y="190" width="142" height="40" rx="8"/><text class="t" x="1020" y="208">Keycloak</text><text class="s" x="1020" y="223">auth. · ClusterIP</text>
+<rect class="argo" x="1010" y="240" width="142" height="40" rx="8"/><text class="t" x="1020" y="258">Argo CD</text><text class="s" x="1020" y="273">argocd. · Access</text>
+<rect class="argo" x="1010" y="290" width="142" height="40" rx="8"/><text class="t" x="1020" y="308">Grafana</text><text class="s" x="1020" y="323">grafana. · Access</text>
+<path class="flow-cf" d="M732 180 L760 150" marker-end="url(#d1c)"/>
+<path class="flow-cf" d="M938 100 H978" marker-end="url(#d1c)"/><text class="s c-cf" x="942" y="92">tunnel</text>
+<path class="flow" d="M992 124 V160 H1008" marker-end="url(#d1a)"/>
+<path class="flow" d="M992 124 V210 H1008" marker-end="url(#d1a)"/>
+<path class="flow" d="M992 124 V260 H1008" marker-end="url(#d1a)"/>
+<path class="flow" d="M992 124 V310 H1008" marker-end="url(#d1a)"/>
+</svg>
+</div>
+<p class="small">Cluster-side changes:</p>
+<ul class="small">
+<li><strong>Added:</strong> a <code>cloudflared</code> Deployment and a NetworkPolicy.</li>
+<li><strong>Retired</strong> (after the fallback window): the Ingresses, so the ALB disappears.</li>
+<li><strong>Changed in the apps:</strong> only which client-IP header they trust.</li>
+</ul>
+
+<h2 id="models">3. Mental models</h2>
+<h3>Client → edge → connector → origin</h3>
+<div class="dia">
+<svg viewBox="0 0 1180 200" role="img" aria-labelledby="d2t">
+<title id="d2t">Four positions: client browser, Cloudflare edge in Cloudflare data centres, cloudflared connector in your cluster, and your origin apps.</title>
+<defs><marker id="d2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--cf)"/></marker></defs>
+<rect class="frame" x="634" y="18" width="538" height="170" rx="12"/><text class="s" x="648" y="36">your AWS account / EKS cluster</text>
+<rect class="you" x="16" y="52" width="230" height="116" rx="10"/><text class="h c-you" x="30" y="76">Client</text><text class="s" x="30" y="98">browser, mobile app, script</text><text class="s" x="30" y="116">optional WARP agent on</text><text class="s" x="30" y="134">managed staff laptops</text>
+<rect class="cf" x="290" y="52" width="300" height="116" rx="10"/><text class="h c-cf" x="304" y="76">Edge (Cloudflare data centres)</text><text class="s" x="304" y="98">TLS termination, DDoS, managed rules</text><text class="s" x="304" y="116">Access login + policy, checks CF token</text><text class="s" x="304" y="134">the ONLY place requests are judged</text><text class="s" x="304" y="152">never the container in your cluster</text>
+<rect class="cf" x="648" y="52" width="230" height="116" rx="10"/><text class="h c-cf" x="662" y="76">Connector</text><text class="s" x="662" y="98">cloudflared Deployment (×2)</text><text class="s" x="662" y="116">dials OUT, keeps the tunnel</text><text class="s" x="662" y="134">forwards hostname → Service</text>
+<rect class="argo" x="922" y="52" width="236" height="116" rx="10"/><text class="h c-argo" x="936" y="76">Origin</text><text class="s" x="936" y="98">Argo CD, Grafana, demo-api,</text><text class="s" x="936" y="116">Keycloak behind ClusterIP</text><text class="s" x="936" y="134">Services, no inbound exposure</text>
+<path class="flow-cf" d="M246 110 H288" marker-end="url(#d2a)"/><text class="s" x="250" y="102">HTTPS</text>
+<path class="flow-cf" d="M590 110 H646" marker-end="url(#d2a)"/><text class="s" x="594" y="102">tunnel</text>
+<path class="flow-cf" d="M878 110 H920" marker-end="url(#d2a)"/><text class="s" x="882" y="102">HTTP</text>
+</svg>
+</div>
+<table>
+<tr><th>Question</th><th>Answer</th></tr>
+<tr><td>What does "edge" look like?</td><td><code>dig +short app.eksgitops.click</code> returns Cloudflare <strong>anycast</strong> IPs, not AWS ones. Responses carry <code>server: cloudflare</code> and <code>cf-ray: …-SYD</code> (request id + the data centre that served it). There's no separate URL: your own hostnames resolve to Cloudflare.</td></tr>
+<tr><td>How does the tunnel work?</td><td><code>cloudflared</code> opens outbound connections (port 7844) to nearby data centres. The edge sends requests back down those connections. Nothing listens inbound: no ALB, NodePort or public IP is needed for tunnelled hosts.</td></tr>
+<tr><td>Do I still need Kubernetes Services?</td><td>Yes: plain <strong>ClusterIP</strong>. They give <code>cloudflared</code> a stable name and spread traffic across pods. A NetworkPolicy lets only the <code>cloudflared</code> namespace reach the tunnelled apps.</td></tr>
+<tr><td>Certificates?</td><td>Cloudflare's free Universal SSL covers <code>eksgitops.click</code> + <code>*.eksgitops.click</code> at the edge. The ACM certificate matters only while the ALB is kept as a fallback.</td></tr>
+<tr><td>Proxied vs DNS-only?</td><td>Per DNS record. <strong>Proxied</strong> (orange cloud): traffic goes through the edge and gets DDoS protection and the managed rules. <strong>DNS-only</strong> (grey cloud): Cloudflare just answers DNS and the browser connects to the target directly. In the target state all four hosts are proxied tunnel CNAMEs. DNS-only exists only for the fallback records.</td></tr>
+<tr><td>Real client IP?</td><td>Every request reaches the apps from <code>cloudflared</code>. Apps trust <code>CF-Connecting-IP</code> <strong>only when the peer is <code>cloudflared</code></strong>. A NetworkPolicy guarantees nothing else can reach them, so the header can't be spoofed. The rate limiter and Keycloak's brute-force protection key on it. This is switched on only after the ALB is retired: while the ALB can still reach the pods, trusting the header would let its clients forge it.</td></tr>
+</table>
+
+<h2 id="identity">4. Identity and tokens</h2>
+<table>
+<tr><th>Role</th><th>Keycloak</th><th>Cloudflare Access</th></tr>
+<tr><td>What it is</td><td>Identity provider, OAuth 2.0 authorization server and OpenID Provider (one <em>realm</em> = one issuer)</td><td>An identity-aware gate in front of chosen hostnames</td></tr>
+<tr><td>Stores users, passwords, MFA</td><td>✅</td><td>❌ It delegates login to an IdP: Keycloak here, Entra ID in many enterprises (OIDC)</td></tr>
+<tr><td>Issues</td><td>ID, access and refresh tokens</td><td>Its own short-lived session JWT, cookie <code>CF_Authorization</code></td></tr>
+<tr><td>Decides access by</td><td>Roles and claims inside the access token, enforced by the API</td><td>Policies per application: <em>Include</em> (OR), <em>Require</em> (AND), <em>Exclude</em> (NOT) on groups, email, country, device posture, MFA; actions Allow / Block / Bypass / Service Auth</td></tr>
+<tr><td>Machines</td><td>Client credentials (service accounts)</td><td>Service tokens (two headers) at the edge</td></tr>
+</table>
+
+<h3>Who checks which token</h3>
+<table>
+<tr><th>Token</th><th>Issued by</th><th>Checked by</th><th>Analogy</th></tr>
+<tr><td><code>CF_Authorization</code> cookie</td><td>Cloudflare</td><td><strong>The edge</strong>, on every request; denied requests never reach the cluster</td><td>Building pass at the front door</td></tr>
+<tr><td><code>Cf-Access-Jwt-Assertion</code> header</td><td>Cloudflare (copy added when forwarding)</td><td>Optional: <code>cloudflared</code>'s <code>access</code> origin check, or an app that wants "who is this"</td><td>A note saying "checked at the door"</td></tr>
+<tr><td>Access token (<code>Authorization: Bearer</code>)</td><td>Keycloak</td><td><strong>The GraphQL API</strong>: signature, iss, aud=demo-api, exp, roles</td><td>Bank card used at the counter</td></tr>
+<tr><td>ID token</td><td>Keycloak</td><td>The client only ("logged in as …")</td><td>Name badge</td></tr>
+<tr><td>Refresh token</td><td>Keycloak</td><td>Keycloak only (rotated on use)</td><td>Card renewal slip</td></tr>
+</table>
+
+<h3>Login flow: one password, several gates</h3>
+<div class="dia">
+<svg class="sw" viewBox="0 0 1180 290" role="img" aria-labelledby="d3t">
+<title id="d3t">Swimlane of eight steps: browser opens argocd, edge redirects to Keycloak, password once, back-channel token call, Cloudflare sets its cookie, Argo performs its own silent SSO, SPA gets an API token silently.</title>
+<defs><marker id="d3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="lane" x="8" y="12" width="1164" height="62" rx="8" style="fill:var(--you-soft)"/><text class="h c-you" x="20" y="48">Browser</text>
+<rect class="lane" x="8" y="80" width="1164" height="62" rx="8" style="fill:var(--cf-soft)"/><text class="h c-cf" x="20" y="116">CF edge</text>
+<rect class="lane" x="8" y="148" width="1164" height="62" rx="8" style="fill:var(--art-soft)"/><text class="h c-art" x="20" y="184">Keycloak</text>
+<rect class="lane" x="8" y="216" width="1164" height="62" rx="8" style="fill:var(--argo-soft)"/><text class="h c-argo" x="20" y="252">Apps</text>
+<rect class="you" x="140" y="21" width="120" height="44" rx="8"/><text class="t" x="150" y="40">① open argocd.</text><text class="s" x="150" y="56">no CF cookie</text>
+<rect class="cf" x="268" y="89" width="120" height="44" rx="8"/><text class="t" x="278" y="108">② redirect</text><text class="s" x="278" y="124">to Keycloak login</text>
+<rect class="art" x="396" y="157" width="120" height="44" rx="8"/><text class="t" x="406" y="176">③ login page</text><text class="s" x="406" y="192">password (+MFA)</text>
+<rect class="cf" x="524" y="89" width="120" height="44" rx="8"/><text class="t" x="534" y="108">④ code back</text><text class="s" x="534" y="124">server-to-server</text>
+<rect class="cf" x="652" y="89" width="120" height="44" rx="8"/><text class="t" x="662" y="108">⑤ policy OK</text><text class="s" x="662" y="124">sets CF cookie</text>
+<rect class="argo" x="780" y="225" width="120" height="44" rx="8"/><text class="t" x="790" y="244">⑥ Argo receives</text><text class="s" x="790" y="260">starts its own OIDC</text>
+<rect class="art" x="908" y="157" width="120" height="44" rx="8"/><text class="t" x="918" y="176">⑦ SSO cookie</text><text class="s" x="918" y="192">no password again</text>
+<rect class="argo" x="1036" y="225" width="120" height="44" rx="8"/><text class="t" x="1046" y="244">⑧ signed in</text><text class="s" x="1046" y="260">Argo RBAC applies</text>
+<path class="flow" d="M260 43 H264 V111 H266" marker-end="url(#d3a)"/>
+<path class="flow" d="M388 111 H392 V179 H394" marker-end="url(#d3a)"/>
+<path class="flow" d="M516 179 H520 V111 H522" marker-end="url(#d3a)"/>
+<path class="flow" d="M644 111 H650" marker-end="url(#d3a)"/>
+<path class="flow" d="M772 111 H776 V247 H778" marker-end="url(#d3a)"/>
+<path class="flow" d="M900 247 H904 V179 H906" marker-end="url(#d3a)"/>
+<path class="flow" d="M1028 179 H1032 V247 H1034" marker-end="url(#d3a)"/>
+</svg>
+</div>
+<ul>
+<li><strong>Front channel vs back channel:</strong> redirects travel through the browser; the code-for-token exchange is a direct server call from Cloudflare to Keycloak's <code>/token</code> endpoint. Both need <code>auth.eksgitops.click</code> reachable: through the tunnel, proxied but <em>not</em> gated by Access.</li>
+<li><strong>The SPA is unaffected:</strong> the SPA's own PKCE flow gets its API token the same silent way, reusing the Keycloak session cookie, so the user types one password.</li>
+<li><strong>Never put Keycloak's login pages behind Access:</strong> that's where the Access login itself happens, so it would loop. Only Keycloak's admin console stays hidden (it's already not routed publicly).</li>
+<li><strong>What Keycloak needs: no code.</strong>
+  <ul>
+  <li><code>KC_HOSTNAME</code> and <code>KC_PROXY_HEADERS=xforwarded</code>, already needed behind any proxy. <code>cloudflared</code> sets <code>X-Forwarded-For</code>/<code>-Proto</code>, so brute-force detection sees the real client.</li>
+  <li>One confidential client <code>cloudflare-access</code> in <code>realm.yaml</code> (standard flow, redirect <code>https://eksgitops.cloudflareaccess.com/cdn-cgi/access/callback</code>, the <code>email</code> scope), only because Access uses Keycloak as its IdP. Its secret is generated by Terraform and read from Secrets Manager <code>demo/keycloak/cloudflare-access</code> (JSON <code>client_id</code>, <code>client_secret</code>).</li>
+  <li>The GraphQL API changes only its trusted client-IP header.</li>
+  </ul></li>
+</ul>
+
+<h2 id="setup">5. Full vs partial vs subdomain setup</h2>
+<table>
+<tr><th>Setup</th><th>How</th><th>Plan</th><th>For us</th></tr>
+<tr><td><strong>Full</strong></td><td>The domain's name servers point at Cloudflare; Cloudflare answers DNS for every name</td><td>Free and up</td><td>✅ Chosen: it's the only option on Free</td></tr>
+<tr><td>Partial (CNAME)</td><td>DNS stays at Route 53; chosen names are CNAMEd to Cloudflare</td><td>Business and up</td><td>❌ Paid</td></tr>
+<tr><td>Subdomain</td><td>Delegate only <code>ops.eksgitops.click</code> to Cloudflare</td><td>Enterprise</td><td>❌ Paid</td></tr>
+</table>
+<p>That's why the whole zone moves: every existing record must be recreated in Cloudflare <em>before</em> the name servers switch.</p>
+
+<h2 id="prereq">6. Prerequisites (one-time; done 2026-10-17)</h2>
+<ul class="checks">
+<li>Cloudflare account (free) at <code>dash.cloudflare.com</code>, email verified, <strong>2FA on</strong>. The Account ID (not secret) is the <code>account_id</code> variable of <code>infra/cloudflare</code>.</li>
+<li>The zone is <strong>not</strong> added in the dashboard: Terraform creates <code>eksgitops.click</code> (Free plan, full setup, no record scan) and every record.</li>
+<li>Zero Trust organization created once through the API (<code>POST /accounts/&lt;id&gt;/access/organizations</code>): team <code>eksgitops</code>, so <code>eksgitops.cloudflareaccess.com</code>. Free plan (up to 50 users). Terraform leaves it unmanaged: nothing in it differs from the defaults.</li>
+<li>A custom API token with: Account · Cloudflare Tunnel · Edit; Account · Access: Apps and Policies · Edit; Account · Access: Organizations, Identity Providers, and Groups · Edit; Account · Account Settings · Edit; Zone · Zone · Edit; Zone · Zone Settings · Edit; Zone · DNS · Edit (all zones; zone creation needs Zone · Edit). It expires 2026-12-17. Narrower would be an account-owned token scoped to the one zone.</li>
+<li>Store the token from a <strong>separate terminal</strong>, never in chat or Git: <code>aws secretsmanager create-secret --region ap-southeast-2 --name demo/cloudflare/api-token --secret-string '…'</code>. Only <code>tf-apply</code> on <code>main</code> reads it (masked); pull requests never do.</li>
+</ul>
+
+<h2 id="runbook">7. Migration runbook</h2>
+<p><span class="tag you">you</span> manual · <span class="tag tf">Terraform</span> <code>infra/cloudflare</code> · <span class="tag argo">Argo</span> gitops repo · <span class="tag ci">CLI</span> one-off command. Every step has a check.</p>
+<h3>A. Prepare (no user impact; one merge of <code>infra/cloudflare</code>)</h3>
+<ol class="steps">
+<li><span class="tag tf">Terraform</span> Zone (pending until the switch) and its settings: SSL <em>Full (strict)</em>, minimum TLS 1.2, Always Use HTTPS. Check: the <code>tf-apply</code> summary shows <code>infra/cloudflare</code> applied; the next plan shows no changes.</li>
+<li><span class="tag tf">Terraform</span> Mirror today's DNS in Cloudflare, so the name-server switch changes nothing:
+  <ul>
+  <li><code>app.</code>/<code>auth.</code>/<code>argocd.</code>/<code>grafana.</code> → DNS-only CNAMEs to the ALB, TTL 60 s. The ALB is found by the load balancer controller's tags (<code>elbv2.k8s.aws/cluster</code>, <code>ingress.k8s.aws/stack=demo</code>), so a rebuilt cluster needs no edit;</li>
+  <li>every other Route 53 record, read live and copied as-is: the <strong>ACM validation CNAME</strong> (kept for the fallback window) and external-dns's ownership TXT records. The apex NS/SOA are Cloudflare's own. The plan fails rather than drop a record it can't copy (an alias or an unusual type).</li>
+  </ul>
+  Check: <code>dig @&lt;cf-ns&gt; app.eksgitops.click</code> returns a CNAME to the ALB name that Route 53's alias resolves to; the ACM CNAME is identical.</li>
+<li><span class="tag tf">Terraform</span> DNS ownership: <strong>Terraform-managed records</strong> (four static hosts, <code>host_modes</code>). external-dns keeps writing Route 53 until the ALB is retired; external-dns with the Cloudflare provider remains an option for dynamic hosts.</li>
+</ol>
+<h3>B. Build the tunnel side (still no user impact)</h3>
+<ol class="steps" start="4">
+<li><span class="tag tf">Terraform</span> Tunnel + routes for <strong>all four hosts</strong>: <code>app.</code> → <code>http://demo-api.demo.svc.cluster.local:8082</code>, <code>auth.</code> → <code>http://keycloak.keycloak.svc.cluster.local:8080</code> for <code>/realms/demo</code> and <code>/resources</code> only (the ALB routed every realm), with any dot-segment path (<code>..</code>, <code>%2e%2e</code>) refused first, so the admin console, its API and the master realm stay off the internet, <code>argocd.</code> → <code>http://argocd-server.argocd.svc.cluster.local:80</code>, <code>grafana.</code> → <code>http://grafana.observability.svc.cluster.local:80</code>, catch-all <code>http_status:404</code>. The token goes to Secrets Manager <code>demo/cloudflare/tunnel-token</code>. Check: the tunnel status is <em>healthy</em> once the connector runs.</li>
+<li><span class="tag argo">Argo</span> <code>cloudflared</code> Deployment: 2 replicas, PDB, readiness on <code>/ready</code>, token from <code>demo/cloudflare/tunnel-token</code> → ESO (its read grant is in <code>infra/eks</code>). NetworkPolicies allow <code>cloudflared</code> → apps (and the ALB, until it is retired). Check: 2/2 Ready, 4 connections each in the logs; a test pod in another namespace can't reach the apps.</li>
+<li><span class="tag argo">Argo</span> Apps trust <code>CF-Connecting-IP</code> from <code>cloudflared</code> only (rate limiter; Keycloak brute-force via forwarded headers), switched on after the ALB is retired (step 11). Until then, tunnelled requests reach the rate limiter from the <code>cloudflared</code> pods' addresses, so tunnel users share those buckets. Check: a unit test and a log line show the real client IP.</li>
+<li><span class="tag tf">Terraform</span> Access identity provider = Keycloak (OIDC, PKCE, scopes <code>openid email profile</code>, email claim <code>email</code>). Terraform generates the client secret and writes <code>demo/keycloak/cloudflare-access</code>; the <code>cloudflare-access</code> client in <code>realm.yaml</code> reads it <span class="tag argo">Argo</span>. Check: "Test" in the Access identity-provider settings logs a realm user in and shows their email.</li>
+<li><span class="tag tf">Terraform</span> Access applications for <code>argocd.</code>/<code>grafana.</code> only, session 8 h, Keycloak as the only identity provider (no one-time PIN) with auto-redirect to its login page. One reusable policy: allow anyone who signs in through Keycloak; Argo CD and Grafana then apply their own roles (<code>demo.guest</code> is read-only in both). <strong>Never on <code>auth.</code></strong> (the login happens there) or <code>app.</code>. Cloudflare accepts Access applications only on an <em>active</em> zone, so each one is created by its host's flip (step 10), just before the record turns proxied. <code>grafana.</code> also gets a path-scoped <em>Bypass</em> application for its externally shared dashboards (<code>/public-dashboards/*</code>, <code>/api/public/*</code>, <code>/public/*</code>, checked against Grafana 12.3.1's routes), so the public dashboard link keeps working without a login. Optional later: <code>cloudflared</code>'s <code>access</code> origin check.</li>
+</ol>
+<h3>C. Name-server cutover (no behaviour change: the records still point at the ALB)</h3>
+<ol class="steps" start="9">
+<li><span class="tag ci">CLI</span> DNSSEC is off (checked 2026-10-17: no DS record at the registrar, the hosted zone isn't signing). Switch the name servers to the two that <code>terraform output nameservers</code> prints:
+<pre><code>aws route53domains update-domain-nameservers --region us-east-1 --domain-name eksgitops.click \
+  --nameservers Name=&lt;a&gt;.ns.cloudflare.com Name=&lt;b&gt;.ns.cloudflare.com</code></pre>
+<ul>
+<li>Both providers serve identical records during propagation.</li>
+<li>Check: <code>dig NS eksgitops.click @1.1.1.1</code> and <code>@8.8.8.8</code> show Cloudflare; the zone is <em>active</em> in the API, and its Universal SSL certificate is active before any host is proxied.</li>
+<li>Cloudflare deletes a zone that stays pending for 28 days, so switch within that window of the merge.</li>
+</ul></li>
+</ol>
+<h3>D. Flip host by host to the tunnel (per-record rollback)</h3>
+<ol class="steps" start="10">
+<li><span class="tag tf">Terraform</span> One pull request per host sets its <code>host_modes</code> entry to <code>tunnel</code>: the record becomes a proxied CNAME to <code>&lt;tunnel-id&gt;.cfargotunnel.com</code>. Order: <code>app.</code> → <code>auth.</code> (no Access; proves the tunnel end to end), then <code>argocd.</code> → <code>grafana.</code> (each flip creates its Access application first).
+  <ul>
+  <li>Check after each flip: <code>curl -sI https://&lt;host&gt;</code> shows <code>server: cloudflare</code>, and the host works end to end.</li>
+  <li><strong>Rollback:</strong> revert that pull request (the host goes back to <code>alb</code>). Resolvers pick it up within minutes, with no name-server change.</li>
+  </ul></li>
+</ol>
+<h3>E. Retire (after a few stable days)</h3>
+<ol class="steps" start="11">
+<li><span class="tag argo">Argo</span> Delete the Ingresses (the Argo CD one is in <code>infra/argocd</code>), so the LB controller removes the ALB, and stop external-dns writing Route 53 (remove the add-on). Then retire ACM-on-ALB in <code>infra/bootstrap</code>; the DNS mirror drops the validation record by itself. Then, in the gitops repo, drop the ALB from the NetworkPolicies and switch the apps to trusting <code>CF-Connecting-IP</code> from <code>cloudflared</code>. Check: <code>aws elbv2 describe-load-balancers</code> shows no demo ALB; all four hosts still answer through the tunnel.</li>
+<li><span class="tag ci">CLI</span> After a few more days, delete the Route 53 hosted zone, after removing what reads it (the mirror and the <code>route53_nameservers</code> output in <code>infra/cloudflare</code>, the zone lookup in <code>infra/bootstrap</code>). Before then, the last-resort rollback is name servers back to the four Route 53 <code>awsdns</code> servers.</li>
+</ol>
+
+<h2 id="checks">8. Acceptance checks</h2>
+<ul class="checks">
+<li><code>dig NS eksgitops.click</code> shows Cloudflare name servers; all four hosts resolve to Cloudflare anycast IPs and return <code>server: cloudflare</code>.</li>
+<li><code>app.</code>/<code>auth.</code> work end to end through the tunnel: PKCE login, GraphQL queries, playground. No Access prompt on these hosts.</li>
+<li><code>argocd.</code>/<code>grafana.</code> show Cloudflare Access → Keycloak login → app SSO, with one password typed.</li>
+<li>The demo guest gets through Access and is read-only in Argo CD and Grafana. Someone without a realm account can't get past the Access login (Keycloak is the only identity provider; no one-time PIN), and the <code>cloudflared</code>/Argo logs show the request never arrived.</li>
+<li>Grafana's public dashboard link opens without any login through the tunnel, while the rest of <code>grafana.</code> asks for the Access login.</li>
+<li>Per-record rollback works: flipping one record back to the ALB restores that host during the fallback window.</li>
+<li>After retirement: no demo ALB exists, and nothing in AWS accepts inbound traffic for the apps (no public LB, no NodePort).</li>
+<li>After the ALB is retired, the rate limiter and Keycloak brute-force log real client IPs (<code>CF-Connecting-IP</code>). A forged header from a non-<code>cloudflared</code> pod is ignored or blocked.</li>
+<li>Last-resort rollback (name servers back to Route 53) is written down until the hosted zone is deleted.</li>
+</ul>
+
+<h2 id="gotchas">9. Gotchas</h2>
+<div class="card cfnote">
+<ul>
+<li><strong>ACM validation record:</strong> keep it in Cloudflare while the ALB fallback exists, or the fallback's certificate can silently fail to renew. The mirror copies it from Route 53 and drops it once ACM-on-ALB is retired.</li>
+<li><strong>Access must never gate Keycloak's login pages</strong>, or the login redirects loop.</li>
+<li><strong>Access needs an active zone:</strong> Cloudflare rejects Access applications on a pending zone, so they appear with each host's flip, never in the first apply.</li>
+<li><strong>Pending zones expire:</strong> a zone still pending 28 days after it was added is deleted by Cloudflare. Switch the name servers within that window.</li>
+<li><strong>Pull requests don't plan <code>infra/cloudflare</code>:</strong> they get no API token, so the first plan of a change runs on <code>main</code> and is applied at once. Run the read-only plan locally (<code>make tf-plan ROOT=cloudflare</code> with the token in the environment) before merging.</li>
+<li><strong>Non-browser clients of <code>argocd.</code>/<code>grafana.</code></strong> (CLI, API tokens, webhooks) are stopped by Access; they need an Access service token or <code>cloudflared access</code>, or the in-cluster Service.</li>
+<li><strong>CORS preflight:</strong> browsers send <code>OPTIONS</code> without cookies, so Access blocks them. Enable "bypass OPTIONS" or answer CORS at the edge.</li>
+<li><strong>HA:</strong> run 2+ <code>cloudflared</code> replicas with a PDB; one pod is a single point of failure.</li>
+<li><strong>Origin bypass:</strong> during the fallback window the ALB still exists. Retire it promptly, or keep the Argo/Grafana routes off it from day one.</li>
+<li><strong>Client IP:</strong> trust <code>CF-Connecting-IP</code> only from <code>cloudflared</code> peers, enforced by a NetworkPolicy.</li>
+<li><strong>Propagation:</strong> name-server changes take hours (up to 24–48 h). Never cut over close to a demo.</li>
+<li><strong>Secrets:</strong> the API token and tunnel token live in Secrets Manager, never in Git or chat. The <code>infra/cloudflare</code> state also holds the tunnel token and the Access client secret, so the pull-request plan role is denied that state, as it is denied Secrets Manager values.</li>
+<li><strong>What the Free plan's WAF is:</strong> the Free Managed Ruleset (on by default), 5 custom rules and 1 rate-limiting rule, whose expression can use only the path and verified bots, counted per IP over 10 s with a 10 s block. The full Cloudflare Managed Ruleset needs Pro or higher. Nothing here is a full WAF.</li>
+<li><strong>Account lockout by strangers:</strong> Keycloak's brute-force protection locks a <em>user</em> (10 failures, then waits up to 15 min), and the demo usernames are published, so anyone can lock a demo account. Follow-up: the Free rate-limiting rule on <code>/realms/demo/login-actions/authenticate</code> (path only on Free, so page loads count too). It needs <strong>Zone · Zone WAF · Edit</strong> on the API token, which the token doesn't have.</li>
+<li><strong>Drift:</strong> dashboard edits drift from Terraform. Manage Cloudflare as code and treat the dashboard as read-only.</li>
+</ul>
+</div>
+<p><strong>Cost:</strong> Cloudflare Free + Zero Trust Free = US$0; the domain is unchanged. Retiring the ALB <em>saves</em> about US$20/month, and the hosted zone another US$0.50/month.</p>
+
+<h2 id="snippets">10. Config snippets (Terraform excerpts from <code>infra/cloudflare</code>, provider v5.28; the Kubernetes parts are sketches for the gitops repo)</h2>
+<details><summary>cloudflared Deployment (Argo)</summary>
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata: { name: cloudflared, namespace: cloudflare }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: cloudflared } }
+  template:
+    metadata: { labels: { app: cloudflared } }
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:&lt;pinned&gt;
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom: { secretKeyRef: { name: cloudflared-token, key: token } }   # ESO from demo/cloudflare/tunnel-token (plain string)
+          readinessProbe: { httpGet: { path: /ready, port: 2000 } }
+          securityContext: { runAsNonRoot: true, readOnlyRootFilesystem: true, allowPrivilegeEscalation: false }</code></pre>
+</details>
+<details><summary>Terraform: hosts, the flip, tunnel routes (dns.tf, tunnel.tf)</summary>
+<pre><code>locals {
+  hosts = {
+    app     = { service = "http://demo-api.demo.svc.cluster.local:8082", path = null, access = false, public_paths = [] }
+    auth    = { service = "http://keycloak.keycloak.svc.cluster.local:8080", path = "^/(realms/demo|resources)(/|$)", access = false, public_paths = [] }
+    argocd  = { service = "http://argocd-server.argocd.svc.cluster.local:80", path = null, access = true, public_paths = [] }
+    grafana = { service = "http://grafana.observability.svc.cluster.local:80", path = null, access = true,
+                public_paths = ["/public-dashboards/*", "/api/public/*", "/public/*"] }   # Bypass application
+  }
+}
+
+# variables.tf: host_modes = { app = "alb", auth = "alb", argocd = "alb", grafana = "alb" }
+resource "cloudflare_dns_record" "host" {
+  for_each = local.hosts
+  zone_id  = cloudflare_zone.this.id
+  name     = "${each.key}.${var.domain}"
+  type     = "CNAME"
+  content  = var.host_modes[each.key] == "tunnel" ? local.tunnel_cname : local.alb_dns_name
+  proxied  = var.host_modes[each.key] == "tunnel"
+  ttl      = var.host_modes[each.key] == "tunnel" ? 1 : 60
+  depends_on = [cloudflare_zero_trust_access_application.this]   # Access before proxied
+}
+
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "eks" {
+  account_id = var.account_id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.eks.id
+  config = {
+    ingress = concat(
+      flatten([for host, cfg in local.hosts : concat(
+        cfg.path == null ? [] : [{ hostname = "${host}.${var.domain}", path = "\\.\\.", service = "http_status:404" }],   # dot segments
+        [{ hostname = "${host}.${var.domain}", path = cfg.path, service = cfg.service }],
+      )]),
+      [{ hostname = null, path = null, service = "http_status:404" }],   # catch-all
+    )
+  }
+}</code></pre>
+</details>
+<details><summary>Terraform: Keycloak as IdP, the policy, the applications (access.tf)</summary>
+<pre><code>resource "cloudflare_zero_trust_access_identity_provider" "keycloak" {
+  account_id = var.account_id
+  name       = "Keycloak"
+  type       = "oidc"
+  config = {
+    client_id        = "cloudflare-access"
+    client_secret    = random_password.access_client_secret.result   # also written to demo/keycloak/cloudflare-access
+    auth_url         = "${local.issuer}/protocol/openid-connect/auth"
+    token_url        = "${local.issuer}/protocol/openid-connect/token"
+    certs_url        = "${local.issuer}/protocol/openid-connect/certs"
+    scopes           = ["openid", "email", "profile"]
+    email_claim_name = "email"
+    pkce_enabled     = true
+  }
+}
+
+resource "cloudflare_zero_trust_access_policy" "keycloak_users" {
+  account_id = var.account_id
+  name       = "Signed in with Keycloak"
+  decision   = "allow"
+  include    = [{ login_method = { id = cloudflare_zero_trust_access_identity_provider.keycloak.id } }]
+}
+
+resource "cloudflare_zero_trust_access_application" "this" {
+  for_each                  = { for host, cfg in local.hosts : host =&gt; cfg if cfg.access &amp;&amp; var.host_modes[host] == "tunnel" }
+  account_id                = var.account_id
+  type                      = "self_hosted"
+  domain                    = "${each.key}.${var.domain}"
+  destinations              = [{ type = "public", uri = "${each.key}.${var.domain}" }]
+  session_duration          = "8h"
+  allowed_idps              = [cloudflare_zero_trust_access_identity_provider.keycloak.id]
+  auto_redirect_to_identity = true
+  policies                  = [{ id = cloudflare_zero_trust_access_policy.keycloak_users.id, precedence = 1 }]
+}
+
+# The more specific application wins: grafana.'s externally shared dashboards stay public.
+resource "cloudflare_zero_trust_access_policy" "public_paths" {
+  account_id = var.account_id
+  name       = "Public paths (bypass)"
+  decision   = "bypass"
+  include    = [{ everyone = {} }]
+}
+
+resource "cloudflare_zero_trust_access_application" "public" {
+  for_each     = { for host, cfg in local.hosts : host =&gt; cfg if length(cfg.public_paths) &gt; 0 &amp;&amp; var.host_modes[host] == "tunnel" }
+  account_id   = var.account_id
+  type         = "self_hosted"
+  domain       = "${each.key}.${var.domain}${each.value.public_paths[0]}"
+  destinations = [for path in each.value.public_paths : { type = "public", uri = "${each.key}.${var.domain}${path}" }]
+  policies     = [{ id = cloudflare_zero_trust_access_policy.public_paths.id, precedence = 1 }]
+}</code></pre>
+</details>
+<details><summary>Keycloak: client entry in realm.yaml (sketch; the gitops repo owns it)</summary>
+<pre><code>clients:
+  - clientId: cloudflare-access
+    protocol: openid-connect
+    publicClient: false
+    secret: "$(env:CLOUDFLARE_ACCESS_CLIENT_SECRET)"     # keycloak-config-cli substitution; ESO from demo/keycloak/cloudflare-access (client_secret)
+    standardFlowEnabled: true
+    redirectUris: ["https://eksgitops.cloudflareaccess.com/cdn-cgi/access/callback"]
+    defaultClientScopes: [basic, email, profile]          # Access needs the email claim</code></pre>
+</details>
+<details><summary>Alternative (dynamic hosts): external-dns with the Cloudflare provider</summary>
+<pre><code>provider: { name: cloudflare }
+env:
+  - name: CF_API_TOKEN
+    valueFrom: { secretKeyRef: { name: cloudflare-api-token, key: token } }
+domainFilters: ["eksgitops.click"]
+txtOwnerId: eks-gitops-demo
+extraArgs: ["--cloudflare-dns-records-per-page=5000"]   # proxied flag per record via annotation
+                                                       # external-dns.alpha.kubernetes.io/cloudflare-proxied</code></pre>
+</details>
+
+<div class="pager"><a href="eks-gitops-demo.html">← Platform</a><a href="eks-gitops-demo-app.html">App &amp; observability →</a></div>
+</main>
+</body></html>

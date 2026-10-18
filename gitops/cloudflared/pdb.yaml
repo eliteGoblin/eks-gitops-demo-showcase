@@ -1,0 +1,13 @@
+# Node drains and upgrades keep one connector up. A connector that runs but is
+# not Ready (no connection to Cloudflare's edge) may always be evicted, so it
+# never blocks a drain. Pending pods (e.g. while the token is missing) never do.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels: { app.kubernetes.io/name: cloudflared }

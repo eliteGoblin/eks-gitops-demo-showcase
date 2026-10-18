@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKS GitOps Demo: Code Architecture</title>
+<meta name="description" content="Go clean architecture for the EKS GitOps demo: domain, app and adapter layers, a shared service kit with a middleware chain, and two services that use it.">
+<link rel="stylesheet" href="style.css">
+<style>
+:root{
+  --tf:#7048e8; --tf-soft:#efeafe; --argo:#e8590c; --argo-soft:#fff0e4; --ci:#0c8a5f; --ci-soft:#e0f5ec;
+  --ctl:#d6336c; --ctl-soft:#fdebf1; --art:#1c7ed6; --art-soft:#e6f1fc; --you:#5b6470; --you-soft:#eef1f4;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}}
+:root[data-theme="dark"]{
+  --tf:#a991ff; --tf-soft:#251c45; --argo:#ff9a5c; --argo-soft:#3a1f0d; --ci:#4fd1a1; --ci-soft:#0d2e22;
+  --ctl:#ff7aa5; --ctl-soft:#3b1222; --art:#6cb4ff; --art-soft:#10263f; --you:#9aa4b1; --you-soft:#1f262e;
+}
+.dia{overflow-x:auto;margin:14px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}
+.dia svg{display:block;min-width:960px;width:100%;height:auto}
+.dia text{font-family:var(--font);fill:var(--ink)}
+.dia .h{font-size:14px;font-weight:700}
+.dia .t{font-size:12.5px;font-weight:600}
+.dia .s{font-size:11px;fill:var(--muted)}
+.dia .sw .t{font-size:11.5px}
+.dia .frame{fill:none;stroke:var(--line);stroke-width:1.5}
+.dia .vpc{fill:none;stroke:var(--tf);stroke-width:1.5;stroke-dasharray:7 5}
+.dia .cluster{fill:var(--tf-soft);fill-opacity:.35;stroke:var(--tf);stroke-width:2}
+.dia .col{fill:var(--surface);fill-opacity:.7;stroke-width:1.5;stroke-dasharray:5 4}
+.dia rect.tf{fill:var(--tf-soft);stroke:var(--tf)} .dia rect.argo{fill:var(--argo-soft);stroke:var(--argo)}
+.dia rect.ci{fill:var(--ci-soft);stroke:var(--ci)} .dia rect.ctl{fill:var(--ctl-soft);stroke:var(--ctl)}
+.dia rect.art{fill:var(--art-soft);stroke:var(--art)} .dia rect.you{fill:var(--you-soft);stroke:var(--you)}
+.dia rect.tf,.dia rect.argo,.dia rect.ci,.dia rect.ctl,.dia rect.art,.dia rect.you{stroke-width:1.5}
+.dia .lane{stroke:none;fill-opacity:.55}
+.dia .c-tf{fill:var(--tf)} .dia .c-argo{fill:var(--argo)} .dia .c-ci{fill:var(--ci)} .dia .c-ctl{fill:var(--ctl)} .dia .c-art{fill:var(--art)} .dia .c-you{fill:var(--you)}
+.dia .flow{fill:none;stroke:var(--muted);stroke-width:1.6}
+.dia .flow-ctl{fill:none;stroke:var(--ctl);stroke-width:1.8;stroke-dasharray:5 4}
+.dia .flow-argo{fill:none;stroke:var(--argo);stroke-width:1.8}
+.dia .dash{stroke-dasharray:5 4}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:8px 0 4px;font-size:13.5px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:4px;border:2px solid}
+.legend .tf{background:var(--tf-soft);border-color:var(--tf)} .legend .argo{background:var(--argo-soft);border-color:var(--argo)}
+.legend .ci{background:var(--ci-soft);border-color:var(--ci)} .legend .ctl{background:var(--ctl-soft);border-color:var(--ctl)}
+.legend .art{background:var(--art-soft);border-color:var(--art)} .legend .you{background:var(--you-soft);border-color:var(--you)}
+td .tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.tag.tf{background:var(--tf-soft);color:var(--tf)} .tag.argo{background:var(--argo-soft);color:var(--argo)}
+.tag.ci{background:var(--ci-soft);color:var(--ci)} .tag.ctl{background:var(--ctl-soft);color:var(--ctl)} .tag.you{background:var(--you-soft);color:var(--you)}
+ul.checks{list-style:none;padding-left:4px} ul.checks li::before{content:"☐ ";color:var(--accent);font-weight:700}
+details{margin:8px 0 14px}
+summary{cursor:pointer;font-weight:600;color:var(--accent)}
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+ol.steps li{margin:4px 0}
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><span class="brand">eks-gitops-demo</span>
+<a href="eks-gitops-demo.html">← Platform</a><a href="eks-gitops-demo-app.html">App &amp; observability</a><a href="#arch">Clean architecture</a><a href="#kit">Service kit</a><a href="#services">Microservices</a>
+</div></header>
+<main>
+<h1>Code architecture: clean layers, a shared service kit, two services</h1>
+<p class="sub">How the Go code in the new <code>eks-gitops-demo</code> repo is organised. Companion to the <a href="eks-gitops-demo.html">platform page</a> and the <a href="eks-gitops-demo-app.html">app and observability page</a>. Prepared 2026-10-16. Phase 1 is built (the API, service kit, playground, CI and bootstrap infrastructure); later phases are design.</p>
+
+<h2 id="arch" style="border-top:none;margin-top:24px;padding-top:0">1. Clean architecture in Go</h2>
+<p>Three layers plus a composition root. Business rules sit in the middle and know nothing about GraphQL, HTTP or Postgres; everything technical sits at the edge and plugs in through small interfaces (<em>ports</em>).</p>
+<div class="dia">
+<svg viewBox="0 0 1180 360" role="img" aria-labelledby="c1t">
+<title id="c1t">Nested layers: cmd/api wires adapters, which surround the app layer of use cases and ports, which surrounds the domain layer. Dependencies point inward: adapter depends on app, app depends on domain, domain depends on nothing.</title>
+<defs><marker id="c1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="you" x="16" y="16" width="760" height="328" rx="14"/>
+<text x="32" y="40"><tspan class="h c-you">cmd/api/main.go</tspan><tspan class="s" dx="8">composition root: wiring only</tspan></text>
+<rect class="argo" x="44" y="56" width="704" height="272" rx="12"/>
+<text x="60" y="80"><tspan class="h c-argo">adapter/</tspan><tspan class="s" dx="8">implements the ports; the only code that imports gqlgen, pgx, net/http clients</tspan></text>
+<text class="t" x="60" y="112">inbound</text>
+<text class="s" x="60" y="132">graphql (gqlgen, thin)</text>
+<text class="s" x="60" y="150">dataloaders</text>
+<text class="s" x="60" y="168">error presenter</text>
+<text class="s" x="60" y="186">health /healthz /readyz</text>
+<text class="t" x="594" y="112">outbound</text>
+<text class="s" x="594" y="132">postgres (sqlc, pgx)</text>
+<text class="s" x="594" y="150">memory (tests, local)</text>
+<text class="s" x="594" y="168">oidc token verifier</text>
+<text class="s" x="594" y="186">payments REST client</text>
+<text class="s" x="594" y="204">events: LISTEN/NOTIFY</text>
+<rect class="ci" x="214" y="100" width="364" height="204" rx="12"/>
+<text x="230" y="124"><tspan class="h c-ci">app/</tspan><tspan class="s" dx="8">use cases + ports</tspan></text>
+<text class="s" x="230" y="144">SubmitSupportRequest,</text>
+<text class="s" x="230" y="160">DecideSupportRequest, SubmitClaim</text>
+<rect class="art" x="284" y="170" width="224" height="104" rx="10"/>
+<text class="h c-art" x="300" y="194">domain/</text>
+<text class="s" x="300" y="214">entities · Money · Date</text>
+<text class="s" x="300" y="232">rules: budget check,</text>
+<text class="s" x="300" y="250">separation of duties</text>
+<text class="s" x="300" y="268">imports nothing</text>
+<text class="s" x="230" y="294">ports: Repos · Relationships · Auditor · Clock · IDs</text>
+
+<text class="h" x="810" y="40">Dependency rule: arrows point inward</text>
+<rect class="argo" x="810" y="60" width="340" height="50" rx="8"/><text class="t" x="822" y="82">adapter/</text><text class="s" x="822" y="100">knows frameworks, drivers, protocols</text>
+<rect class="ci" x="810" y="150" width="340" height="50" rx="8"/><text class="t" x="822" y="172">app/</text><text class="s" x="822" y="190">orchestrates; declares the ports it needs</text>
+<rect class="art" x="810" y="240" width="340" height="50" rx="8"/><text class="t" x="822" y="262">domain/</text><text class="s" x="822" y="280">pure Go: no framework, no I/O</text>
+<path class="flow" d="M980 110 V148" marker-end="url(#c1-a)"/><text class="s" x="990" y="134">depends on</text>
+<path class="flow" d="M980 200 V238" marker-end="url(#c1-a)"/><text class="s" x="990" y="224">depends on</text>
+<text class="s" x="810" y="320">cmd/api picks concrete adapters at startup and</text>
+<text class="s" x="810" y="336">injects them into the use cases.</text>
+</svg>
+</div>
+<p class="small">Grey = composition root · orange = adapters · green = application layer · blue = domain.</p>
+
+<pre><code>eks-gitops-demo/
+├── cmd/
+│   ├── api/main.go              composition root: config → adapters → use cases → server
+│   └── payments/main.go         second service, same kit (see section 3)
+├── internal/
+│   ├── domain/                  entities, value objects, rules, domain errors · imports nothing
+│   │   ├── money.go  date.go
+│   │   ├── participant.go  plan.go  budget.go  booking.go  claim.go
+│   │   └── supportrequest.go    separation of duties: the decider is never the requester
+│   ├── app/                     use cases + the ports they need
+│   │   ├── ports.go             repositories, Relationships, Auditor, Clock, IDGenerator (later: EventPublisher, PaymentsClient)
+│   │   ├── supportrequest.go    SubmitSupportRequest, DecideSupportRequest
+│   │   └── claim.go             SubmitClaim (idempotent)
+│   ├── adapter/
+│   │   ├── graphql/             schema, thin gqlgen resolvers, dataloaders, error presenter
+│   │   ├── postgres/            sqlc queries, repositories, transactions, LISTEN/NOTIFY events
+│   │   ├── memory/              in-memory repositories for unit tests and local runs
+│   │   ├── oidc/                JWT verifier → Principal
+│   │   └── payments/            REST client: client credentials, retry, circuit breaker
+│   ├── paymentsvc/              the second service's own domain + app + adapters
+│   └── platform/                the shared service kit (section 2)
+├── migrations/                  SQL migrations, run by the PreSync Job
+├── deploy/helm/{demo-api,payments-svc}/
+└── test/e2e/                    verify script against a running stack</code></pre>
+
+<h3>Go idioms the layout relies on</h3>
+<ul>
+<li><strong>Interfaces belong to the consumer.</strong> <code>app/ports.go</code> declares small interfaces (one to three methods); adapters satisfy them implicitly. Accept interfaces, return structs.</li>
+<li><strong>No framework types in the domain.</strong> No gqlgen models, no <code>pgx</code> rows, no <code>http.Request</code>. Domain types are plain structs with methods that enforce rules.</li>
+<li><strong><code>context.Context</code> first</strong> on every port and use-case method, so deadlines, cancellation, the principal and trace spans flow through.</li>
+<li><strong>Errors are wrapped with <code>%w</code></strong> on the way up and mapped to GraphQL <code>extensions.code</code> (or a REST status) <em>only</em> in the adapter's error presenter. Domain errors are sentinel values or typed errors that use cases return unchanged.</li>
+<li><strong>Atomic steps are ports.</strong> <code>ClaimRepository.InsertClaimWithinBudget</code> makes the budget check and the insert one step (in memory: one lock; in Postgres: a transaction that locks the plan row with <code>SELECT … FOR UPDATE</code>), so concurrent claims can never overspend. A general <code>TxManager.WithinTx</code> arrives when a use case writes several aggregates (Phase 3).</li>
+<li><strong>Authorization runs inside every use case</strong> through one concrete <code>Policy</code> (wrapped by a guard that audits each decision), with the principal taken from the context, so every GraphQL path pays the same check. It is deny-by-default: staff may read everything and approve, but never submit claims. A concrete type is enough here; an <code>Authorizer</code> interface would only add indirection (YAGNI).</li>
+</ul>
+
+<h3>Testing per layer</h3>
+<table>
+<tr><th>Layer</th><th>Test type</th><th>Tools</th><th>Runs</th></tr>
+<tr><td><code>domain/</code></td><td>Pure unit tests, table-driven: money arithmetic, budget checks, the self-approval rule</td><td><code>go test</code></td><td>Every PR, milliseconds</td></tr>
+<tr><td><code>app/</code></td><td>Use cases against in-memory fakes from <code>adapter/memory</code>: authorization, transactions, events published</td><td><code>go test -race</code></td><td>Every PR</td></tr>
+<tr><td><code>adapter/</code></td><td>Integration: real Postgres in a container (sqlc queries, migrations, <code>LISTEN/NOTIFY</code>); resolvers through <code>httptest</code></td><td>testcontainers-go</td><td>Every PR (Docker on the runner)</td></tr>
+<tr><td>whole system</td><td>End-to-end checks with real tokens against kind locally and dev on EKS (PostSync smoke Job)</td><td><code>test/e2e/verify.sh</code></td><td>Locally and after every sync</td></tr>
+</table>
+<p class="small">Coverage gate: ≥ 80% on <code>domain/</code> + <code>app/</code> combined (the code that carries the business rules). Adapters are covered by integration tests rather than a percentage.</p>
+
+<details><summary>Go: a domain rule, a port and a use case (sketch)</summary>
+<pre><code>// internal/domain/supportrequest.go
+var (
+	ErrSelfApproval = errors.New("cannot decide your own support request")
+	ErrNotPending   = errors.New("support request is not pending")
+)
+
+type SupportRequest struct {
+	ID          string
+	PlanID      string
+	RaisedBy    string // subject of the participant or nominee who raised it
+	Category    Category
+	Estimate    Money
+	Status      RequestStatus
+	Reason      string
+}
+
+// Decide applies the separation-of-duties rule before any state change.
+func (r *SupportRequest) Decide(decider string, approve bool, reason string) error {
+	if decider == r.RaisedBy {
+		return ErrSelfApproval
+	}
+	if r.Status != StatusSubmitted {
+		return ErrNotPending
+	}
+	r.Status, r.Reason = StatusRejected, reason
+	if approve {
+		r.Status = StatusApproved
+	}
+	return nil
+}
+
+// internal/app/ports.go — small interfaces, declared where they are used
+type SupportRequests interface {
+	Get(ctx context.Context, id string) (domain.SupportRequest, error)
+	Save(ctx context.Context, r domain.SupportRequest) error
+}
+type Plans interface {
+	Get(ctx context.Context, id string) (domain.Plan, error)
+}
+type Bookings interface {
+	Save(ctx context.Context, b domain.ServiceBooking) error
+}
+type EventPublisher interface {
+	Publish(ctx context.Context, e domain.Event) error
+}
+type TxManager interface {
+	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// internal/app/supportrequest.go
+type DecideSupportRequest struct {
+	Policy   *Policy
+	Tx       TxManager
+	Requests SupportRequests
+	Plans    Plans
+	Bookings Bookings
+	Events   EventPublisher
+}
+
+func (uc DecideSupportRequest) Execute(ctx context.Context, p Principal, in DecideInput) (domain.SupportRequest, error) {
+	if err := uc.Policy.Can(ctx, p, ActionDecideSupportRequest, Resource{ID: in.ID}); err != nil {
+		return domain.SupportRequest{}, err
+	}
+	var out domain.SupportRequest
+	err := uc.Tx.WithinTx(ctx, func(ctx context.Context) error {
+		r, err := uc.Requests.Get(ctx, in.ID)
+		if err != nil {
+			return fmt.Errorf("load support request %s: %w", in.ID, err)
+		}
+		if err := r.Decide(p.Subject, in.Approve, in.Reason); err != nil {
+			return err // domain error, mapped to SelfApprovalNotAllowedError at the edge
+		}
+		if in.Approve {
+			plan, err := uc.Plans.Get(ctx, r.PlanID)
+			if err != nil {
+				return fmt.Errorf("load plan %s: %w", r.PlanID, err)
+			}
+			booking, err := plan.Reserve(r.Category, r.Estimate, in.ProviderID) // budget rule lives in the domain
+			if err != nil {
+				return err
+			}
+			if err := uc.Bookings.Save(ctx, booking); err != nil {
+				return fmt.Errorf("save booking: %w", err)
+			}
+		}
+		if err := uc.Requests.Save(ctx, r); err != nil {
+			return fmt.Errorf("save support request: %w", err)
+		}
+		out = r
+		return uc.Events.Publish(ctx, domain.SupportRequestDecided{ID: r.ID, Status: r.Status})
+	})
+	return out, err
+}</code></pre>
+<p class="small">The resolver only translates GraphQL input into <code>DecideInput</code>, calls <code>Execute</code>, and lets the error presenter turn <code>domain.ErrSelfApproval</code> into the <code>SelfApprovalNotAllowedError</code> union member.</p>
+</details>
+
+<h2 id="kit">2. A shared service kit</h2>
+<p><code>internal/platform</code> is the reusable base every service is built on, so a second service gets logging, tracing, health, security and graceful shutdown on day one instead of re-inventing them.</p>
+<table>
+<tr><th>Piece</th><th>What it gives every service</th></tr>
+<tr><td>Config</td><td>Environment variables parsed into a typed struct and validated at startup; a missing or malformed value fails fast with a clear message.</td></tr>
+<tr><td>Logging</td><td><code>log/slog</code> JSON to stdout with <code>request_id</code>, <code>trace_id</code> and <code>span_id</code> on every line.</td></tr>
+<tr><td>HTTP server</td><td>Read-header, read and write timeouts; graceful shutdown on SIGTERM: readiness flips to 503, new connections stop, in-flight requests drain (up to 20 s). A Kubernetes <code>preStop</code> sleep lets the ALB deregister the pod first.</td></tr>
+<tr><td>Health</td><td><code>/healthz</code> liveness (the process is alive, no dependencies) and <code>/readyz</code> readiness (database ping, JWKS loaded).</td></tr>
+<tr><td>Telemetry</td><td>OpenTelemetry setup (traces, metrics, runtime metrics) and a flush on shutdown.</td></tr>
+<tr><td>Errors</td><td>One JSON error envelope for REST: <code>{"error":{"code","message","request_id"}}</code>. GraphQL keeps the same codes in <code>extensions.code</code>.</td></tr>
+<tr><td>Inbound auth</td><td>JWT verifier middleware (signature via JWKS, issuer, audience, expiry, token type) that puts a <code>Principal</code> in the context.</td></tr>
+<tr><td>Outbound HTTP</td><td>Client with the OpenTelemetry transport, per-call timeout, retries with jittered backoff for idempotent calls only, a circuit breaker, and a cached client-credentials token source.</td></tr>
+</table>
+<p class="small">Libraries: <code>chi</code>, standard <code>log/slog</code>, <code>coreos/go-oidc</code>, <code>golang.org/x/time/rate</code> (token bucket), <code>golang.org/x/oauth2/clientcredentials</code>, <code>sony/gobreaker</code>, OpenTelemetry <code>otelhttp</code>.</p>
+
+<h3>Middleware chain</h3>
+<div class="dia">
+<svg class="sw" viewBox="0 0 1180 196" role="img" aria-labelledby="c2t">
+<title id="c2t">Middleware order from outermost to innermost: recover, request id, OpenTelemetry, access log, security headers and CORS, limits, rate limit, authentication, then the GraphQL layer.</title>
+<defs><marker id="c2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<text x="19" y="32"><tspan class="h">Request →</tspan><tspan class="s" dx="8">outermost first; the response unwinds in reverse order</tspan></text>
+<rect class="ci" x="19" y="56" width="118" height="70" rx="8"/><text class="t" x="27" y="78">① Recover</text><text class="s" x="27" y="96">panic → 500</text><text class="s" x="27" y="112">logs the stack</text>
+<rect class="ci" x="147" y="56" width="118" height="70" rx="8"/><text class="t" x="155" y="78">② Request ID</text><text class="s" x="155" y="96">X-Request-ID</text><text class="s" x="155" y="112">in ctx + logs</text>
+<rect class="ci" x="275" y="56" width="118" height="70" rx="8"/><text class="t" x="283" y="78">③ OpenTelemetry</text><text class="s" x="283" y="96">otelhttp span</text><text class="s" x="283" y="112">+ RED metrics</text>
+<rect class="ci" x="403" y="56" width="118" height="70" rx="8"/><text class="t" x="411" y="78">④ Access log</text><text class="s" x="411" y="96">slog JSON</text><text class="s" x="411" y="112">status · latency</text>
+<rect class="ci" x="531" y="56" width="118" height="70" rx="8"/><text class="t" x="539" y="78">⑤ Headers, CORS</text><text class="s" x="539" y="96">security headers</text><text class="s" x="539" y="112">origin allowlist</text>
+<rect class="ci" x="659" y="56" width="118" height="70" rx="8"/><text class="t" x="667" y="78">⑥ Limits</text><text class="s" x="667" y="96">body 256 KiB</text><text class="s" x="667" y="112">deadline 10 s</text>
+<rect class="ci" x="787" y="56" width="118" height="70" rx="8"/><text class="t" x="795" y="78">⑦ Rate limit</text><text class="s" x="795" y="96">token bucket</text><text class="s" x="795" y="112">per client IP</text>
+<rect class="ci" x="915" y="56" width="118" height="70" rx="8"/><text class="t" x="923" y="78">⑧ Authenticate</text><text class="s" x="923" y="96">Bearer JWT →</text><text class="s" x="923" y="112">Principal in ctx</text>
+<rect class="argo" x="1043" y="56" width="118" height="70" rx="8"/><text class="t" x="1051" y="78">⑨ GraphQL</text><text class="s" x="1051" y="96">@auth directive</text><text class="s" x="1051" y="112">depth, cost limits</text>
+<path class="flow" d="M137 91 H145" marker-end="url(#c2-a)"/>
+<path class="flow" d="M265 91 H273" marker-end="url(#c2-a)"/>
+<path class="flow" d="M393 91 H401" marker-end="url(#c2-a)"/>
+<path class="flow" d="M521 91 H529" marker-end="url(#c2-a)"/>
+<path class="flow" d="M649 91 H657" marker-end="url(#c2-a)"/>
+<path class="flow" d="M777 91 H785" marker-end="url(#c2-a)"/>
+<path class="flow" d="M905 91 H913" marker-end="url(#c2-a)"/>
+<path class="flow" d="M1033 91 H1041" marker-end="url(#c2-a)"/>
+<text class="s" x="19" y="156">green = platform kit, identical in every service · orange = per service (GraphQL only in demo-api)</text>
+<text class="s" x="19" y="176">public paths (/healthz, /readyz) skip ⑧; payments-svc runs ①–⑧ with its own expected audience</text>
+</svg>
+</div>
+<h3>Why this order</h3>
+<ul>
+<li><strong>① Recover is outermost</strong> so a panic anywhere below still becomes a clean 500 with a log line, never a dropped connection.</li>
+<li><strong>② Request ID before anything logs</strong>, so every log line and error envelope can carry it.</li>
+<li><strong>③ OpenTelemetry before the access log</strong>, so the log line can include the <code>trace_id</code> and the span measures everything after it.</li>
+<li><strong>⑤ Headers and CORS early</strong>, so even rejected requests (429, 401) carry security headers and preflights never reach auth.</li>
+<li><strong>⑥ Limits before work</strong>: oversized bodies and slow requests are cut off before parsing.</li>
+<li><strong>⑦ Rate limit before ⑧ auth</strong>, so a flood of junk tokens never costs signature checks.</li>
+<li><strong>⑧ Authentication, then ⑨ authorization</strong>: the transport proves <em>who</em>; the GraphQL directive and the use cases decide <em>what</em>.</li>
+</ul>
+<details><summary>Go: assembling the chain with chi (sketch)</summary>
+<pre><code>func NewRouter(cfg Config, log *slog.Logger, verifier kit.Verifier, ready kit.ReadyFunc, gql http.Handler) http.Handler {
+	r := chi.NewRouter()
+	r.Use(
+		kit.Recover(log),                         // ① outermost: catches panics from everything below
+		kit.RequestID,                            // ② id exists before anything logs
+		kit.OTel("demo-api"),                     // ③ span + RED metrics cover the rest of the chain
+		kit.AccessLog(log),                       // ④ status, latency, request_id, trace_id
+		kit.SecurityHeaders,                      // ⑤
+		kit.CORS(cfg.AllowedOrigins),             // ⑤ allowlist, never "*" with credentials
+		kit.Limits(1&lt;&lt;20, 10*time.Second),        // ⑥ body size, request deadline
+		kit.RateLimit(cfg.RatePerSec, cfg.Burst), // ⑦ before auth: floods never reach JWKS checks
+	)
+	r.Get("/healthz", kit.Live)
+	r.Get("/readyz", kit.Ready(ready))
+	r.With(kit.Authenticate(verifier)).Handle("/graphql", gql) // ⑧ then gqlgen: ⑨ @auth, limits, presenter
+	return r
+}</code></pre>
+</details>
+
+<h2 id="services">3. Microservice demo: two services, one kit</h2>
+<div class="dia">
+<svg viewBox="0 0 1180 244" role="img" aria-labelledby="c3t">
+<title id="c3t">The browser reaches demo-api through the ALB. demo-api gets a client-credentials token from Keycloak and calls payments-svc, which is reachable only inside the cluster and validates the token against Keycloak's keys. Both services send traces to X-Ray as one trace.</title>
+<defs><marker id="c3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker></defs>
+<rect class="you" x="20" y="80" width="150" height="56" rx="8"/><text class="t" x="32" y="103">Browser</text><text class="s" x="32" y="121">SPA · user token</text>
+<rect class="ctl" x="220" y="80" width="150" height="56" rx="8"/><text class="t" x="232" y="103">ALB · HTTPS</text><text class="s" x="232" y="121">app.frankbluemind.com</text>
+<rect class="argo" x="430" y="56" width="220" height="104" rx="8"/><text class="t" x="442" y="80">demo-api</text><text class="s" x="442" y="99">GraphQL · public via Ingress</text><text class="s" x="442" y="117">platform kit + payments adapter</text><text class="s" x="442" y="135">timeout · retry · circuit breaker</text>
+<rect class="argo" x="760" y="56" width="220" height="104" rx="8"/><text class="t" x="772" y="80">payments-svc</text><text class="s" x="772" y="99">REST · ClusterIP only</text><text class="s" x="772" y="117">platform kit + JWT check (aud)</text><text class="s" x="772" y="135">NetworkPolicy: demo-api only</text>
+<rect class="argo" x="600" y="184" width="200" height="50" rx="8"/><text class="t" x="612" y="205">Keycloak</text><text class="s" x="612" y="222">client demo-api-svc · JWKS</text>
+<rect class="tf" x="1020" y="80" width="140" height="56" rx="8"/><text class="t" x="1032" y="103">AWS X-Ray</text><text class="s" x="1032" y="121">one trace, 2 services</text>
+<path class="flow" d="M170 108 H218" marker-end="url(#c3-a)"/>
+<path class="flow" d="M370 108 H428" marker-end="url(#c3-a)"/>
+<path class="flow" d="M650 108 H758" marker-end="url(#c3-a)"/><text class="s" x="664" y="100">② call + Bearer</text>
+<path class="flow dash" d="M560 160 L622 182" marker-end="url(#c3-a)"/><text class="s" x="470" y="184">① token (cached)</text>
+<path class="flow dash" d="M850 160 L782 182" marker-end="url(#c3-a)"/><text class="s" x="852" y="184">③ JWKS</text>
+<path class="flow dash" d="M980 108 H1018" marker-end="url(#c3-a)"/>
+</svg>
+</div>
+<ul>
+<li><strong>demo-api</strong> is the public GraphQL experience API. <strong>payments-svc</strong> is an internal REST mock of a payment processor: a Service of type ClusterIP, no Ingress, so it is unreachable from outside the cluster.</li>
+<li><strong>Service-to-service auth:</strong> OAuth 2.0 client credentials. demo-api's confidential Keycloak client <code>demo-api-svc</code> gets a token with audience <code>payments-svc</code> (cached until shortly before expiry). payments-svc validates it with the same kit middleware, only expecting a different audience. The client secret is generated in Secrets Manager and delivered by ESO.</li>
+<li><strong>Resilience in demo-api's payments adapter:</strong> 2 s timeout per call; up to 2 retries with jittered backoff, only for idempotent requests (an <code>Idempotency-Key</code> header makes a payment retry-safe); a circuit breaker opens after 5 consecutive failures and half-opens after 30 s. While open, the resolver returns a typed "payments unavailable" outcome instead of hanging.</li>
+<li><strong>One trace across both services:</strong> the kit's outbound transport injects W3C <code>traceparent</code>; payments-svc's ③ OpenTelemetry middleware continues it, so X-Ray shows <code>demo-api → payments-svc</code> as a single trace.</li>
+<li><strong>NetworkPolicy:</strong> payments-svc accepts traffic only from pods labelled <code>app=demo-api</code> (enforced by the VPC CNI).</li>
+<li><strong>Why it matters:</strong> the second service is mostly <code>main.go</code> wiring plus its own small domain; logging, tracing, health, auth, limits and shutdown come from the kit unchanged.</li>
+</ul>
+
+<div class="pager"><a href="eks-gitops-demo-app.html">← App and observability</a><a href="eks-gitops-demo.html">Platform →</a></div>
+</main>
+</body></html>

@@ -1,0 +1,58 @@
+# The store is in memory, so more than one replica would give each pod different data.
+replicaCount: 1
+
+image:
+  repository: payments-svc # built from the repo Dockerfile with --build-arg CMD=payments
+  tag: "" # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+
+# Non-secret runtime config (ConfigMap, loaded with envFrom). Production-safe defaults.
+config:
+  oidcIssuer: https://auth.frankbluemind.com/realms/demo
+  oidcAudience: payments-svc
+  allowedClients: [demo-api-svc] # only demo-api's service account may call
+  env: prod
+  port: "8083"
+  rateLimitRps: 50
+  rateLimitBurst: 100
+
+# OpenTelemetry (see the demo-api chart); an empty endpoint turns exporting off.
+telemetry:
+  endpoint: ""
+  serviceName: payments-svc
+  sampleRatio: "1.0"
+
+service:
+  port: 8083 # ClusterIP only: payments-svc is never exposed outside the cluster
+
+# Only demo-api pods may open connections to payments-svc. Enforced by the
+# VPC CNI network policy agent on EKS (kubelet probes stay allowed).
+networkPolicy:
+  enabled: true
+  allowFromPodLabels:
+    app.kubernetes.io/name: demo-api
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+goMemLimit: 100MiB
+
+shutdown:
+  preStopSleepSeconds: 10
+  terminationGracePeriodSeconds: 40
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

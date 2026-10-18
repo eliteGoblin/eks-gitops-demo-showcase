@@ -1,0 +1,10 @@
+# Cloudflare Tunnel connector and what it needs in the cluster. No namespace
+# transformer on purpose: every resource names its namespace, because the
+# NetworkPolicies live next to the apps they protect.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - externalsecret.yaml
+  - deployment.yaml
+  - pdb.yaml
+  - networkpolicies.yaml

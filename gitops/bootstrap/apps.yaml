@@ -1,0 +1,20 @@
+# Child of the root Application (app of apps). Sync wave 2: workloads (Keycloak, its realm config, demo-api).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:eliteGoblin/eks-gitops-demo-gitops.git
+    targetRevision: main
+    path: apps/dev
+    directory: { recurse: true }
+  destination: { server: https://kubernetes.default.svc, namespace: argocd }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [SkipDryRunOnMissingResource=true]

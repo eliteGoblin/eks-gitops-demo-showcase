@@ -1,0 +1,43 @@
+# Creates Grafana's database on the shared RDS instance once (idempotent). A
+# PostSync hook so the external-secrets Secret above exists first; the kubelet
+# keeps retrying container creation until the Secret has been synced.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-createdb
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70 # postgres user in the alpine image
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: psql
+          image: {{ .Values.createDbImage }}
+          command: [sh, -ec]
+          args:
+            - |
+              if psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
+                echo "database $DB_NAME exists"
+              else
+                psql -c "CREATE DATABASE \"$DB_NAME\"" && echo "created database $DB_NAME"
+              fi
+          env:
+            - { name: PGHOST, value: {{ required "db.host" .Values.db.host | quote }} }
+            - { name: PGDATABASE, value: postgres }
+            - { name: PGSSLMODE, value: require }
+            - { name: DB_NAME, value: {{ .Values.db.name | quote }} }
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: grafana-db, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: grafana-db, key: password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
