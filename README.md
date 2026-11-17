@@ -1,6 +1,8 @@
 # eks-gitops-demo
 
-Go GraphQL API on AWS EKS behind a Cloudflare Zero Trust edge, with Keycloak single sign-on, GitOps by Argo CD and Terraform applied by CI; live at [app.frankbluemind.com](https://app.frankbluemind.com/).
+Go GraphQL API on AWS EKS behind a Cloudflare Zero Trust edge, with Keycloak single sign-on, GitOps by Argo CD and Terraform applied by CI; it ran live at app.frankbluemind.com from 16 October to 18 November 2026.
+
+**Status: parked since 18 November 2026.** The AWS environment was destroyed to stop the running cost; the code, Terraform, gitops manifests and design records below are complete. The hosts under "Try it" return a Cloudflare 1033 error until the environment is rebuilt.
 
 ![Solution architecture: users reach the system only through Cloudflare; inside AWS, EKS runs cloudflared, demo-api, payments-svc, Keycloak, Grafana and the platform helpers next to RDS, Secrets Manager, ECR and the observability services; GitHub Actions releases to ECR and Argo CD watches the gitops repo](docs/showcase/solution-architecture.svg)
 
